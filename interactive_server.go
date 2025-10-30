@@ -1814,7 +1814,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 	// Use Empire's Get-System module
 	moduleID := "powershell/privesc/getsystem"
-	_, ok := is.moduleRegistry.GetModuleByPath(moduleID)
+	_, ok = is.moduleRegistry.GetModuleByPath(moduleID)
 	if !ok {
 		// Fallback to direct ID lookup
 		_, ok = is.moduleRegistry.GetModule(moduleID)
