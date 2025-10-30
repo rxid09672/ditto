@@ -8,6 +8,15 @@ bin/
 # Test binaries
 *.test
 
+# Test files and coverage reports
+*_test.go
+test.sh
+coverage.out
+coverage.html
+coverage.txt
+.coverage
+/tmp/
+
 # Output files
 *.out
 *.o
@@ -28,7 +37,6 @@ Thumbs.db
 
 # Temporary files
 *.tmp
-/tmp/
 *.log
 
 # Config files with secrets

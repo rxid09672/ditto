@@ -31,7 +31,7 @@ test-all: test test-coverage test-race test-bench
 	@echo "All tests completed!"
 
 test-comprehensive:
-	@./test.sh
+	@if [ -f test.sh ]; then ./test.sh; else echo "test.sh not found (gitignored)"; fi
 
 install:
 	@echo "Installing..."
