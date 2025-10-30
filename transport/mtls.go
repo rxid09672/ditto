@@ -49,20 +49,32 @@ func (mt *mTLSTransport) Name() string {
 }
 
 func (mt *mTLSTransport) Start(ctx context.Context, tConfig *TransportConfig) error {
+	if !tConfig.TLSEnabled {
+		return fmt.Errorf("mTLS transport requires TLS to be enabled\n"+
+			"  Set TLSEnabled: true in TransportConfig")
+	}
+	
+	certPath := tConfig.TLSCertPath
+	keyPath := tConfig.TLSKeyPath
+	
+	if certPath == "" || keyPath == "" {
+		return fmt.Errorf("mTLS transport requires certificate paths\n"+
+			"  TLSCertPath and TLSKeyPath must be provided in TransportConfig\n"+
+			"  Example: TLSCertPath: ./certs/server.crt, TLSKeyPath: ./certs/server.key")
+	}
+	
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		ClientAuth: tls.RequireAndVerifyClientCert,
 	}
 	
-	if tConfig.TLSEnabled {
-		cert, err := tls.LoadX509KeyPair(tConfig.TLSCertPath, tConfig.TLSKeyPath)
-		if err != nil {
-			return fmt.Errorf("failed to load certificate: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{cert}
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to load certificate from %s and %s: %w\n"+
+			"  Ensure both certificate and key files exist and are readable", certPath, keyPath, err)
 	}
+	tlsConfig.Certificates = []tls.Certificate{cert}
 	
-	var err error
 	mt.listener, err = tls.Listen("tcp", tConfig.BindAddr, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to start mTLS listener: %w", err)

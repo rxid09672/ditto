@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -92,7 +93,37 @@ func (ht *HTTPTransport) Start(ctx context.Context, tConfig *TransportConfig) er
 		IdleTimeout:  ht.config.Server.KeepAlive,
 	}
 	
-	if ht.config.Server.TLSEnabled {
+	// Only use TLS if explicitly enabled in TransportConfig
+	// The global config TLSEnabled setting applies to the main server, not listeners
+	if tConfig.TLSEnabled {
+		certPath := tConfig.TLSCertPath
+		keyPath := tConfig.TLSKeyPath
+		
+		// Fallback to config paths if TransportConfig paths are empty
+		if certPath == "" || keyPath == "" {
+			certPath = ht.config.Server.TLSCertPath
+			keyPath = ht.config.Server.TLSKeyPath
+		}
+		
+		// Validate certificate paths before starting TLS listener
+		if certPath == "" || keyPath == "" {
+			return fmt.Errorf("TLS is enabled but certificate paths are not configured\n"+
+				"  Solution 1: Provide certificate paths in TransportConfig\n"+
+				"  Solution 2: Configure certificate paths in config\n"+
+				"  Solution 3: Set TLSEnabled: false in TransportConfig for plain HTTP")
+		}
+		
+		// Check if certificates exist
+		if _, err := os.Stat(certPath); os.IsNotExist(err) {
+			return fmt.Errorf("TLS certificate file not found: %s\n"+
+				"  Solution: Generate certificates or provide valid certificate paths", certPath)
+		}
+		
+		if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+			return fmt.Errorf("TLS key file not found: %s\n"+
+				"  Solution: Generate certificates or provide valid certificate paths", keyPath)
+		}
+		
 		tlsConfig := &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
@@ -104,6 +135,7 @@ func (ht *HTTPTransport) Start(ctx context.Context, tConfig *TransportConfig) er
 			return fmt.Errorf("failed to start TLS listener: %w", err)
 		}
 	} else {
+		// Plain HTTP listener
 		var err error
 		ht.listener, err = net.Listen("tcp", tConfig.BindAddr)
 		if err != nil {
@@ -114,8 +146,23 @@ func (ht *HTTPTransport) Start(ctx context.Context, tConfig *TransportConfig) er
 	ht.logger.Info("HTTP transport started on %s", tConfig.BindAddr)
 	
 	go func() {
-		if ht.config.Server.TLSEnabled {
-			ht.server.ServeTLS(ht.listener, ht.config.Server.TLSCertPath, ht.config.Server.TLSKeyPath)
+		if tConfig.TLSEnabled {
+			certPath := tConfig.TLSCertPath
+			keyPath := tConfig.TLSKeyPath
+			
+			// Fallback to config paths if TransportConfig paths are empty
+			if certPath == "" || keyPath == "" {
+				certPath = ht.config.Server.TLSCertPath
+				keyPath = ht.config.Server.TLSKeyPath
+			}
+			
+			// Validate certificate paths before starting
+			if certPath == "" || keyPath == "" {
+				ht.logger.Error("TLS enabled but certificate paths not configured")
+				return
+			}
+			
+			ht.server.ServeTLS(ht.listener, certPath, keyPath)
 		} else {
 			ht.server.Serve(ht.listener)
 		}
