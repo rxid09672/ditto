@@ -439,7 +439,7 @@ func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	ht.logger.Info("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
+	ht.logger.Debug("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
 	
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {

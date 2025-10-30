@@ -88,8 +88,11 @@ func (l *Logger) log(level, format string, v ...interface{}) {
 	if l.file != nil {
 		l.logger.Print(output)
 	}
-	// Always write to stdout as well (for interactive debugging)
-	fmt.Println(output)
+	// Only write to stdout if no file is set (for non-interactive mode) or for critical errors
+	// This prevents session-related logs from bleeding into interactive CLI
+	if l.file == nil || level == "ERROR" {
+		fmt.Println(output)
+	}
 }
 
 // Close closes the logger
