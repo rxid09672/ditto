@@ -32,6 +32,19 @@ func getHistoryPath() string {
 	return "/tmp/ditto_history"
 }
 
+// getSessionHistoryPath returns a path for session-specific history file
+func getSessionHistoryPath() string {
+	// Try to use user's home directory
+	if u, err := user.Current(); err == nil {
+		historyDir := filepath.Join(u.HomeDir, ".ditto")
+		os.MkdirAll(historyDir, 0755) // Create directory if it doesn't exist
+		return filepath.Join(historyDir, "history_sessions")
+	}
+	
+	// Fallback to /tmp if we can't get home directory
+	return "/tmp/ditto_history_sessions"
+}
+
 // NewReadlineInput creates a new readline input handler
 func NewReadlineInput(prompt string) (*ReadlineInput, error) {
 	return NewReadlineInputWithCompleter(prompt, NewCompleter())
@@ -39,6 +52,12 @@ func NewReadlineInput(prompt string) (*ReadlineInput, error) {
 
 // NewReadlineInputWithCompleter creates a new readline input handler with a specific completer
 func NewReadlineInputWithCompleter(prompt string, completer *Completer) (*ReadlineInput, error) {
+	return NewReadlineInputWithCompleterAndHistory(prompt, completer, "")
+}
+
+// NewReadlineInputWithCompleterAndHistory creates a new readline input handler with a specific completer and history file
+// If historyPath is empty, uses the default history path
+func NewReadlineInputWithCompleterAndHistory(prompt string, completer *Completer, historyPath string) (*ReadlineInput, error) {
 	if completer == nil {
 		completer = NewCompleter()
 	}
@@ -61,7 +80,10 @@ func NewReadlineInputWithCompleter(prompt string, completer *Completer) (*Readli
 	// Create prefix completer with all items (variadic args)
 	completerFunc := readline.NewPrefixCompleter(items...)
 	
-	historyPath := getHistoryPath()
+	// Use provided history path or default
+	if historyPath == "" {
+		historyPath = getHistoryPath()
+	}
 	
 	config := &readline.Config{
 		Prompt:          prompt,

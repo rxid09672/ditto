@@ -1277,10 +1277,13 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 		return fmt.Errorf("server not running")
 	}
 
-	// Create session-specific readline input
+	// Create session-specific readline input with separate history file
 	sessionPrompt := fmt.Sprintf("[ditto %s] > ", shortID(sessionID))
 	var sessionInput interactive.InputReader
-	rlInput, err := interactive.NewReadlineInputWithCompleter(sessionPrompt, is.completer)
+	
+	// Use session-specific history file to prevent history bleeding into main CLI
+	sessionHistoryPath := interactive.GetSessionHistoryPath()
+	rlInput, err := interactive.NewReadlineInputWithCompleterAndHistory(sessionPrompt, is.completer, sessionHistoryPath)
 	if err != nil {
 		// Fallback to simple input
 		sessionInput = interactive.NewFallbackInput(sessionPrompt)
