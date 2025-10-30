@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/ditto/ditto/certificates"
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/tasks"
 )
@@ -106,10 +109,63 @@ func (s *Server) Start(listenAddr string) error {
 	s.logger.Info("Starting C2 server on %s", listenAddr)
 	
 	if s.config.Server.TLSEnabled {
-		return s.server.ListenAndServeTLS(
-			s.config.Server.TLSCertPath,
-			s.config.Server.TLSKeyPath,
-		)
+		certPath := s.config.Server.TLSCertPath
+		keyPath := s.config.Server.TLSKeyPath
+		
+		// If certificate paths are empty, use defaults
+		if certPath == "" || keyPath == "" {
+			certPath = "./certs/server.crt"
+			keyPath = "./certs/server.key"
+			// Update config so subsequent operations use these paths
+			s.config.Server.TLSCertPath = certPath
+			s.config.Server.TLSKeyPath = keyPath
+		}
+		
+		// Check if certificates exist, generate if needed
+		if _, err := os.Stat(certPath); os.IsNotExist(err) {
+			s.logger.Info("TLS certificates not found, generating self-signed certificates...")
+			cm := certificates.NewCAManager(s.logger)
+			
+			// Generate CA first
+			if err := cm.GenerateCA("Ditto CA"); err != nil {
+				return fmt.Errorf("failed to generate CA for server certificates: %w\n"+
+					"  Solution: Check file permissions or disable TLS in config", err)
+			}
+			
+			// Generate server certificate
+			certPEM, keyPEM, err := cm.GenerateCertificate("localhost", []string{"localhost", "127.0.0.1"}, nil)
+			if err != nil {
+				return fmt.Errorf("failed to generate server certificate: %w\n"+
+					"  Solution: Check file permissions or disable TLS in config", err)
+			}
+			
+			// Ensure cert directory exists
+			certDir := filepath.Dir(certPath)
+			if err := os.MkdirAll(certDir, 0755); err != nil {
+				return fmt.Errorf("failed to create certificate directory %s: %w\n"+
+					"  Solution: Check directory permissions or specify a different path", certDir, err)
+			}
+			
+			// Write certificates
+			if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+				return fmt.Errorf("failed to write certificate file %s: %w\n"+
+					"  Solution: Check file permissions or specify a different path", certPath, err)
+			}
+			if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+				return fmt.Errorf("failed to write key file %s: %w\n"+
+					"  Solution: Check file permissions or specify a different path", keyPath, err)
+			}
+			
+			s.logger.Info("TLS certificates generated successfully: %s, %s", certPath, keyPath)
+		} else {
+			// Verify key file also exists
+			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+				return fmt.Errorf("TLS certificate exists but key file not found: %s\n"+
+					"  Solution: Generate new certificates or provide both cert and key files", keyPath)
+			}
+		}
+		
+		return s.server.ListenAndServeTLS(certPath, keyPath)
 	}
 	
 	return s.server.ListenAndServe()
