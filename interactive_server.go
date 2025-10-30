@@ -121,18 +121,15 @@ func (is *InteractiveServer) Run() {
 	fmt.Println("Type 'help' for available commands")
 	fmt.Println()
 
-	for {
-		// Update prompt based on current session
-		prompt := "[ditto] > "
-		if is.currentSession != "" {
-			prompt = fmt.Sprintf("[ditto %s] > ", shortID(is.currentSession))
-		}
-		if is.input == nil {
-			fmt.Printf("[!] Error: input handler not initialized\n")
-			break
-		}
+		for {
+			// Update prompt based on current session
+			prompt := getPrompt(is.currentSession)
+			if is.input == nil {
+				fmt.Printf("[!] Error: input handler not initialized\n")
+				break
+			}
 
-		is.input.SetPrompt(prompt)
+			is.input.SetPrompt(prompt)
 
 		line, err := is.input.ReadLine()
 		if err != nil {
@@ -1167,11 +1164,21 @@ func (is *InteractiveServer) printSessions() {
 	t.AppendHeader(table.Row{"ID", "Type", "Transport", "Remote Addr", "Connected", "Last Seen", "State"})
 
 	for _, session := range sessionList {
+		// Get remote address from metadata if not set directly
+		remoteAddr := session.RemoteAddr
+		if remoteAddr == "" {
+			if addr, ok := session.GetMetadata("remote_addr"); ok {
+				if addrStr, ok := addr.(string); ok {
+					remoteAddr = addrStr
+				}
+			}
+		}
+		
 		t.AppendRow(table.Row{
 			shortID(session.ID),
 			session.Type,
 			session.Transport,
-			session.RemoteAddr,
+			remoteAddr,
 			session.ConnectedAt.Format("15:04:05"),
 			session.LastSeen.Format("15:04:05"),
 			session.GetState(),
@@ -2188,17 +2195,18 @@ func (is *InteractiveServer) setServerRunning(running bool) {
 }
 
 func shortID(id string) string {
-	parts := strings.Split(id, "-")
-	if len(parts) > 0 {
-		if len(parts[0]) > 8 {
-			return parts[0][:8]
-		}
-		return parts[0]
+	if len(id) <= 8 {
+		return id
 	}
-	if len(id) > 8 {
-		return id[:8]
+	return id[:8]
+}
+
+// getPrompt returns the prompt string for the current session
+func getPrompt(currentSession string) string {
+	if currentSession == "" {
+		return "[ditto] > "
 	}
-	return id
+	return fmt.Sprintf("[ditto %s] > ", shortID(currentSession))
 }
 
 // validateCallbackURL validates that a callback URL is in a valid format
@@ -2403,7 +2411,14 @@ func (is *InteractiveServer) syncSessionsWithContext(ctx context.Context) {
 					}
 
 					session := core.NewSession(id, sessionType, transport)
-
+					
+					// Set RemoteAddr if available - need to use reflection or direct field access
+					// Since RemoteAddr is a field, we can use a helper method
+					if serverSession.RemoteAddr != "" {
+						// Store in metadata for now, we'll enhance Session struct later if needed
+						session.SetMetadata("remote_addr", serverSession.RemoteAddr)
+					}
+					
 					// Copy metadata from server session
 					if serverSession.Metadata != nil {
 						for key, value := range serverSession.Metadata {
@@ -2411,12 +2426,14 @@ func (is *InteractiveServer) syncSessionsWithContext(ctx context.Context) {
 						}
 					}
 
-					// Store remote address in metadata (since RemoteAddr isn't directly settable)
-					if serverSession.RemoteAddr != "" {
-						session.SetMetadata("remote_addr", serverSession.RemoteAddr)
-					}
-
 					is.sessionMgr.AddSession(session)
+
+					// Print notification about new session (without interrupting prompt)
+					// Use fmt.Printf with newline to ensure it appears properly
+					fmt.Printf("\n[+] New session: %s (%s) from %s\n", shortID(id), sessionType, serverSession.RemoteAddr)
+					if is.input != nil {
+						is.input.SetPrompt(getPrompt(is.currentSession))
+					}
 
 					// Trigger reaction manager for new session
 					is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{

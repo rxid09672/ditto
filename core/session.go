@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,12 +130,26 @@ func (sm *SessionManager) AddSession(session *Session) {
 	sm.sessions[session.ID] = session
 }
 
-// GetSession retrieves a session by ID
+// GetSession retrieves a session by ID (supports partial matching)
 func (sm *SessionManager) GetSession(id string) (*Session, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	session, ok := sm.sessions[id]
-	return session, ok
+	
+	// Try exact match first
+	if session, ok := sm.sessions[id]; ok {
+		return session, ok
+	}
+	
+	// Try partial match (for short IDs like Sliver/Empire)
+	// Match sessions that start with the provided ID
+	id = strings.ToLower(id)
+	for sessionID, session := range sm.sessions {
+		if strings.HasPrefix(strings.ToLower(sessionID), id) {
+			return session, true
+		}
+	}
+	
+	return nil, false
 }
 
 // RemoveSession removes a session
