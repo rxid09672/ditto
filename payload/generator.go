@@ -532,16 +532,6 @@ var (
 	sessionMu sync.Mutex
 )
 
-func init() {
-	{{if eq .Evasion.HideConsole true}}
-	// Hide console window on Windows
-	if runtime.GOOS == "windows" {
-		// This will be handled by build tags, but adding runtime check as well
-		// The -ldflags="-H windowsgui" will prevent console window
-	}
-	{{end}}
-}
-
 func main() {
 	// Avoid detection
 	if runtime.GOOS != "windows" {
