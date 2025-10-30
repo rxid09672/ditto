@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -17,9 +19,29 @@ type ReadlineInput struct {
 	prompt   string
 }
 
+// getHistoryPath returns a path for the history file
+func getHistoryPath() string {
+	// Try to use user's home directory
+	if u, err := user.Current(); err == nil {
+		historyDir := filepath.Join(u.HomeDir, ".ditto")
+		os.MkdirAll(historyDir, 0755) // Create directory if it doesn't exist
+		return filepath.Join(historyDir, "history")
+	}
+	
+	// Fallback to /tmp if we can't get home directory
+	return "/tmp/ditto_history"
+}
+
 // NewReadlineInput creates a new readline input handler
 func NewReadlineInput(prompt string) (*ReadlineInput, error) {
-	completer := NewCompleter()
+	return NewReadlineInputWithCompleter(prompt, NewCompleter())
+}
+
+// NewReadlineInputWithCompleter creates a new readline input handler with a specific completer
+func NewReadlineInputWithCompleter(prompt string, completer *Completer) (*ReadlineInput, error) {
+	if completer == nil {
+		completer = NewCompleter()
+	}
 	
 	// Build completer items
 	items := make([]readline.PrefixCompleterInterface, 0)
@@ -39,9 +61,11 @@ func NewReadlineInput(prompt string) (*ReadlineInput, error) {
 	// Create prefix completer with all items (variadic args)
 	completerFunc := readline.NewPrefixCompleter(items...)
 	
+	historyPath := getHistoryPath()
+	
 	config := &readline.Config{
 		Prompt:          prompt,
-		HistoryFile:     "/tmp/ditto_history",
+		HistoryFile:     historyPath,
 		AutoComplete:   completerFunc,
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
