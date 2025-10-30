@@ -91,6 +91,14 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	// Restore listener jobs from database
 	is.restoreListenerJobs()
 
+	// Auto-load modules from modules/empire directory
+	modulesPath := "modules/empire"
+	if err := moduleRegistry.LoadModulesFromDirectory(modulesPath); err != nil {
+		logger.Warn("Failed to load modules from %s: %v", modulesPath, err)
+	} else {
+		logger.Info("Loaded modules from %s", modulesPath)
+	}
+
 	return is
 }
 
@@ -1542,20 +1550,10 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Printf("     Status: %s\n", task.Status)
 				fmt.Printf("     Created: %s\n\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
 			}
-		case "help", "h":
-			fmt.Println("Session commands:")
-			fmt.Println("  shell <command>  - Execute shell command")
-			fmt.Println("  module <id>      - Execute module")
-			fmt.Println("  modules          - List available modules")
-			fmt.Println("  queue            - List pending tasks")
-			fmt.Println("  migrate <pid>   - Migrate to another process")
-			fmt.Println("  grep <pattern> <path> - Search file contents")
-			fmt.Println("  head <path>      - Show first lines of file")
-			fmt.Println("  tail <path>      - Show last lines of file")
-			fmt.Println("  cat <path>       - Display file contents")
-			fmt.Println("  download <path> - Download file")
-			fmt.Println("  upload <local> <remote> - Upload file")
-			fmt.Println("  back, exit       - Exit session")
+		case "getsystem":
+			if err := is.executeGetSystem(sessionID); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
+			}
 		default:
 			// Default to shell command
 			taskID, err := is.executeShellCommand(sessionID, line)
@@ -1692,6 +1690,65 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued module: %s (session: %s, task: %s)\n", moduleID, shortID(sessionID), taskID)
 	return taskID, nil
+}
+
+func (is *InteractiveServer) executeGetSystem(sessionID string) error {
+	if is.server == nil {
+		return fmt.Errorf("server not initialized\n" +
+			"  Ensure the C2 server is running with 'server start'")
+	}
+
+	// Validate session exists
+	session, ok := is.sessionMgr.GetSession(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
+	// Check if Windows session
+	transportType := session.Transport
+	if transportType != "http" && transportType != "https" {
+		// Try to determine from metadata
+		if osInfo, ok := session.GetMetadata("os"); ok {
+			if osStr, ok := osInfo.(string); ok {
+				if !strings.Contains(strings.ToLower(osStr), "windows") {
+					return fmt.Errorf("getsystem is only supported on Windows")
+				}
+			}
+		}
+	}
+
+	// Use Empire's Get-System module
+	moduleID := "powershell/privesc/getsystem"
+	_, ok := is.moduleRegistry.GetModule(moduleID)
+	if !ok {
+		return fmt.Errorf("getsystem module not found: %s\n"+
+			"  Ensure modules are loaded from modules/empire directory", moduleID)
+	}
+
+	// Execute with NamedPipe technique (most reliable)
+	params := map[string]interface{}{
+		"session_id": sessionID,
+		"Technique":  "NamedPipe",
+		"ServiceName": "",
+		"PipeName":    "",
+	}
+
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &tasks.Task{
+		ID:         taskID,
+		Type:       "module",
+		Command:    moduleID,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued getsystem module (task: %s)\n", taskID)
+	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
+	fmt.Printf("[*] A new session should appear if successful\n")
+	
+	// Poll for result
+	is.pollTaskResult(sessionID, taskID)
+	return nil
 }
 
 func (is *InteractiveServer) downloadFile(sessionID, remotePath string) error {
