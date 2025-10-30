@@ -1090,8 +1090,16 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	}
 
 	// Save build to database
-	modulesJSON, _ := json.Marshal(options.Modules)
-	evasionJSON, _ := json.Marshal(options.Evasion)
+	modulesJSON, err := json.Marshal(options.Modules)
+	if err != nil {
+		is.logger.Error("Failed to marshal modules: %v", err)
+		modulesJSON = []byte("[]") // Default to empty array on error
+	}
+	evasionJSON, err := json.Marshal(options.Evasion)
+	if err != nil {
+		is.logger.Error("Failed to marshal evasion: %v", err)
+		evasionJSON = []byte("[]") // Default to empty array on error
+	}
 
 	build := &database.ImplantBuild{
 		Name:        filepath.Base(outputPath),
