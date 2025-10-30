@@ -42,12 +42,15 @@ func TestGenerateWindowsExecutable_Compiles(t *testing.T) {
 	cfg.Communication.Protocol = "http://localhost:8443"
 
 	opts := Options{
-		Type:      "full",
-		Arch:      "amd64",
-		OS:        "windows",
-		Encrypt:   false,
-		Obfuscate: false,
-		Config:    cfg,
+		Type:        "full",
+		Arch:        "amd64",
+		OS:          "windows",
+		Encrypt:     false,
+		Obfuscate:   false,
+		Config:      cfg,
+		CallbackURL: "http://localhost:8443",
+		Delay:       30,
+		Jitter:      0.0,
 	}
 
 	// Generate the executable
