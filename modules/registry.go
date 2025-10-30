@@ -407,11 +407,22 @@ func ProcessModule(module *EmpireModule, params map[string]string) (string, erro
 func substituteTemplate(template string, params map[string]string) string {
 	result := template
 	
+	// Handle {{ OUTPUT_FUNCTION }} - default to Out-String if not specified
+	if strings.Contains(result, "{{ OUTPUT_FUNCTION }}") {
+		outputFunc := params["OUTPUT_FUNCTION"]
+		if outputFunc == "" {
+			outputFunc = "Out-String" // Default output function for PowerShell modules
+		}
+		result = strings.ReplaceAll(result, "{{ OUTPUT_FUNCTION }}", outputFunc)
+	}
+	
+	// Handle {{ PARAMS }} - build parameter string
 	if strings.Contains(result, "{{ PARAMS }}") {
 		paramsStr := buildParamsString(params)
 		result = strings.ReplaceAll(result, "{{ PARAMS }}", paramsStr)
 	}
 	
+	// Handle other {{ PARAM }} placeholders
 	re := regexp.MustCompile(`\{\{\s*(\w+)\s*\}\}`)
 	result = re.ReplaceAllStringFunc(result, func(match string) string {
 		paramName := strings.TrimSpace(strings.Trim(match, "{}"))
