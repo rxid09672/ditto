@@ -41,10 +41,12 @@ func ImageToASCII(imgPath string, width int) (string, error) {
 	newHeight := int(float64(imgHeight) / scale)
 
 	var result strings.Builder
+	lines := make([]string, 0)
 
 	// Convert each pixel to ASCII
 	for y := 0; y < newHeight; y++ {
 		imgY := int(float64(y) * scale)
+		var line strings.Builder
 		for x := 0; x < width; x++ {
 			imgX := int(float64(x) * scale)
 			
@@ -60,8 +62,22 @@ func ImageToASCII(imgPath string, width int) (string, error) {
 				charIndex = len(asciiChars) - 1
 			}
 			
-			result.WriteString(asciiChars[charIndex])
+			line.WriteString(asciiChars[charIndex])
 		}
+		lineStr := strings.TrimRight(line.String(), " ")
+		if len(lineStr) > 0 {
+			lines = append(lines, lineStr)
+		}
+	}
+
+	// Remove trailing blank lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	// Build final result
+	for _, line := range lines {
+		result.WriteString(line)
 		result.WriteString("\n")
 	}
 
@@ -77,9 +93,11 @@ func PrintDittoBanner() error {
 		tmpFile := "/tmp/ditto_banner.png"
 		if err := os.WriteFile(tmpFile, embeddedData, 0644); err == nil {
 			defer os.Remove(tmpFile)
-			ascii, err := ImageToASCII(tmpFile, 60)
+			ascii, err := ImageToASCII(tmpFile, 50) // Reduced width for tighter output
 			if err == nil {
-				fmt.Println(ascii)
+				// Clean up the output - remove excessive blank lines
+				cleaned := cleanASCIIArt(ascii)
+				fmt.Print(cleaned)
 				return nil
 			}
 		}
@@ -87,17 +105,49 @@ func PrintDittoBanner() error {
 
 	// Fallback to local file
 	if _, err := os.Stat("ditto.png"); err == nil {
-		ascii, err := ImageToASCII("ditto.png", 60)
+		ascii, err := ImageToASCII("ditto.png", 50) // Reduced width
 		if err != nil {
 			return err
 		}
-		fmt.Println(ascii)
+		cleaned := cleanASCIIArt(ascii)
+		fmt.Print(cleaned)
 		return nil
 	}
 
 	// Fallback to text banner if image not found
 	printTextBanner()
 	return nil
+}
+
+// cleanASCIIArt removes excessive blank lines and trims output
+func cleanASCIIArt(ascii string) string {
+	lines := strings.Split(ascii, "\n")
+	
+	// Remove leading blank lines
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	
+	// Remove trailing blank lines
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	
+	// Remove ALL blank lines completely
+	var cleaned []string
+	for i := start; i < end; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			cleaned = append(cleaned, lines[i])
+		}
+	}
+	
+	if len(cleaned) == 0 {
+		return ""
+	}
+	
+	return strings.Join(cleaned, "\n") + "\n"
 }
 
 func printTextBanner() {
