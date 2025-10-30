@@ -1,10 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +17,7 @@ import (
 	"github.com/ditto/ditto/certificates"
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/database"
+	"github.com/ditto/ditto/interactive"
 	"github.com/ditto/ditto/jobs"
 	"github.com/ditto/ditto/loot"
 	"github.com/ditto/ditto/modules"
@@ -46,6 +47,8 @@ type InteractiveServer struct {
 	persistManager *persistence.Installer
 	reactionMgr    *reactions.ReactionManager
 	taskQueue      *tasks.Queue // Shared task queue for all components
+	completer      *interactive.Completer
+	input          interactive.InputReader
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -54,6 +57,8 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	
 	// Create shared task queue for all components
 	sharedTaskQueue := tasks.NewQueue(1000)
+	
+	completer := interactive.NewCompleter()
 	
 	is := &InteractiveServer{
 		logger:         logger,
@@ -67,6 +72,16 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 		persistManager: nil, // Created per-installation
 		reactionMgr:    reactions.NewReactionManager(logger),
 		taskQueue:      sharedTaskQueue,
+		completer:      completer,
+	}
+	
+	// Initialize readline input (fallback to simple input if readline fails)
+	rlInput, err := interactive.NewReadlineInput("[ditto] > ")
+	if err != nil {
+		logger.Warn("Failed to initialize readline, using simple input: %v", err)
+		is.input = interactive.NewFallbackInput("[ditto] > ")
+	} else {
+		is.input = rlInput
 	}
 	
 	// Restore listener jobs from database
@@ -94,19 +109,31 @@ func (is *InteractiveServer) restoreListenerJobs() {
 
 // Run starts the interactive server CLI
 func (is *InteractiveServer) Run() {
+	defer is.input.Close()
+	
 	banner.PrintDittoBanner()
 	fmt.Println("Ditto Interactive Server")
 	fmt.Println("Type 'help' for available commands")
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		fmt.Print("[ditto] > ")
-		if !scanner.Scan() {
-			break
+		// Update prompt based on current session
+		prompt := "[ditto] > "
+		if is.currentSession != "" {
+			prompt = fmt.Sprintf("[ditto %s] > ", shortID(is.currentSession))
+		}
+		is.input.SetPrompt(prompt)
+
+		line, err := is.input.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			fmt.Printf("[!] Error reading input: %v\n", err)
+			continue
 		}
 
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -119,6 +146,15 @@ func (is *InteractiveServer) Run() {
 		command := parts[0]
 		args := parts[1:]
 
+		// Validate command before executing (with visual feedback)
+		if !is.completer.IsValidCommand(command) {
+			fmt.Printf("[!] Unknown command: %s\nType 'help' for available commands.\n", command)
+			continue
+		}
+		
+		// Visual feedback: highlight valid command (optional - can be enabled for verbose mode)
+		// For now, we validate silently, but the completer provides tab completion hints
+		
 		if err := is.handleCommand(command, args); err != nil {
 			fmt.Printf("[!] Error: %v\n", err)
 		}
@@ -1134,18 +1170,33 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 		return fmt.Errorf("server not running")
 	}
 	
-	scanner := bufio.NewScanner(os.Stdin)
+	// Create session-specific readline input
+	sessionPrompt := fmt.Sprintf("[ditto %s] > ", shortID(sessionID))
+	var sessionInput interactive.InputReader
+	rlInput, err := interactive.NewReadlineInput(sessionPrompt)
+	if err != nil {
+		// Fallback to simple input
+		sessionInput = interactive.NewFallbackInput(sessionPrompt)
+	} else {
+		sessionInput = rlInput
+	}
+	defer sessionInput.Close()
+	
 	for {
 		if is.currentSession != sessionID {
 			break // Session changed
 		}
 		
-		fmt.Print("[ditto " + shortID(sessionID) + "] > ")
-		if !scanner.Scan() {
-			break
+		line, err := sessionInput.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			fmt.Printf("[!] Error reading input: %v\n", err)
+			continue
 		}
 		
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
