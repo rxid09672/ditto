@@ -1699,6 +1699,12 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 	if err := pf.Start(ctx, func(conn net.Conn) {
 		// Forward connection through session
 		// Create a task to establish remote connection on implant side
+		if is.server == nil {
+			is.logger.Error("Server is nil, cannot queue port forward task")
+			conn.Close()
+			return
+		}
+		
 		task := &tasks.Task{
 			ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
 			Type:    "portforward",
@@ -1791,6 +1797,12 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 	if err := proxy.Start(ctx, func(conn net.Conn) {
 		// Handle SOCKS5 protocol through session
 		// Create a task to establish SOCKS5 proxy on implant side
+		if is.server == nil {
+			is.logger.Error("Server is nil, cannot queue SOCKS5 task")
+			conn.Close()
+			return
+		}
+		
 		task := &tasks.Task{
 			ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
 			Type:    "socks5",
