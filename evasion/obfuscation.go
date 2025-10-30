@@ -33,10 +33,19 @@ func DeobfuscateCode(data []byte, key []byte) []byte {
 // ApplyPolymorphism applies polymorphic transformations
 func ApplyPolymorphism(code []byte) []byte {
 	// Add NOPs, reorder instructions, etc.
+	if len(code) == 0 {
+		return []byte{}
+	}
+	
 	polymorphic := make([]byte, 0, len(code)*2)
 	
 	// Insert random NOPs
 	nopCount := len(code) / 10
+	if nopCount == 0 {
+		// If code is too short, don't insert NOPs
+		return append([]byte{}, code...)
+	}
+	
 	for i := 0; i < len(code); i++ {
 		polymorphic = append(polymorphic, code[i])
 		if i%nopCount == 0 && i > 0 {

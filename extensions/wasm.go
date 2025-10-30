@@ -1,9 +1,5 @@
 package extensions
 
-import (
-	"fmt"
-)
-
 // WASMRuntime manages WASM extensions
 type WASMRuntime struct {
 	extensions map[string]*Extension

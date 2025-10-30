@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/modules"

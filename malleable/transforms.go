@@ -3,7 +3,6 @@ package malleable
 import (
 	"encoding/base64"
 	"fmt"
-	"strings"
 )
 
 // TransformFunction represents a transform function
@@ -113,17 +112,20 @@ func ReverseTransform(funcName string, args []string, data []byte) ([]byte, erro
 		if len(args) < 1 {
 			return nil, fmt.Errorf("prepend requires 1 argument")
 		}
-		return ReversePrepend(data, args[0]), nil
+		result, err := ReversePrepend(data, args[0])
+		return result, err
 	case "append":
 		if len(args) < 1 {
 			return nil, fmt.Errorf("append requires 1 argument")
 		}
-		return ReverseAppend(data, args[0]), nil
+		result, err := ReverseAppend(data, args[0])
+		return result, err
 	case "mask":
 		if len(args) < 1 {
 			return nil, fmt.Errorf("mask requires 1 argument")
 		}
-		return ReverseMask(data, args[0]), nil
+		result, err := ReverseMask(data, args[0])
+		return result, err
 	case "netbios":
 		return ReverseNetBIOS(data)
 	default:
@@ -207,6 +209,11 @@ func ReverseAppend(data []byte, suffix string) ([]byte, error) {
 func TransformMask(data []byte, maskStr string) []byte {
 	mask := []byte(maskStr)
 	result := make([]byte, len(data))
+	if len(mask) == 0 {
+		// If mask is empty, return data unchanged
+		copy(result, data)
+		return result
+	}
 	for i := range data {
 		result[i] = data[i] ^ mask[i%len(mask)]
 	}

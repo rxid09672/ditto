@@ -68,8 +68,15 @@ func padKey(key []byte, size int) []byte {
 	padded := make([]byte, size)
 	copy(padded, key)
 	// Simple padding with repeated key
-	for i := len(key); i < size; i++ {
-		padded[i] = key[i%len(key)]
+	if len(key) > 0 {
+		for i := len(key); i < size; i++ {
+			padded[i] = key[i%len(key)]
+		}
+	} else {
+		// If key is empty, pad with zeros
+		for i := len(key); i < size; i++ {
+			padded[i] = 0
+		}
 	}
 	return padded
 }

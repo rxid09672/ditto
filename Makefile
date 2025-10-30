@@ -13,6 +13,26 @@ test:
 	@echo "Running tests..."
 	@go test -v ./...
 
+test-coverage:
+	@echo "Running tests with coverage..."
+	@go test -v -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@go tool cover -func=coverage.out | tail -1
+
+test-race:
+	@echo "Running tests with race detector..."
+	@go test -race ./...
+
+test-bench:
+	@echo "Running benchmarks..."
+	@go test -bench=. -benchmem ./...
+
+test-all: test test-coverage test-race test-bench
+	@echo "All tests completed!"
+
+test-comprehensive:
+	@./test.sh
+
 install:
 	@echo "Installing..."
 	@go install -ldflags "-X main.buildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ) -X main.gitCommit=$(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" .
