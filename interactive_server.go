@@ -1151,70 +1151,125 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 		
 		switch command {
 		case "shell", "exec":
-			is.executeShellCommand(sessionID, strings.Join(args, " "))
+			if len(args) == 0 {
+				fmt.Println("[!] Error: Command cannot be empty")
+				fmt.Println("    Usage: shell <command>")
+				fmt.Println("    Example: shell whoami")
+			} else {
+				is.executeShellCommand(sessionID, strings.Join(args, " "))
+			}
 		case "module", "run":
 			if len(args) >= 1 {
 				is.executeModule(sessionID, args[0], args[1:])
 			} else {
-				fmt.Println("[!] Usage: module <module_id> [args...]")
+				fmt.Println("[!] Error: Module ID is required")
+				fmt.Println("    Usage: module <module_id> [args...]")
+				fmt.Println("    Example: module powershell/credentials/mimikatz")
+				fmt.Println("    Use 'modules' command to list available modules")
 			}
 		case "download":
 			if len(args) >= 1 {
 				is.downloadFile(sessionID, args[0])
 			} else {
-				fmt.Println("[!] Usage: download <remote_path>")
+				fmt.Println("[!] Error: Remote path is required")
+				fmt.Println("    Usage: download <remote_path>")
+				fmt.Println("    Example: download C:\\Windows\\System32\\config\\sam")
 			}
 		case "upload":
 			if len(args) >= 2 {
 				is.uploadFile(sessionID, args[0], args[1])
 			} else {
-				fmt.Println("[!] Usage: upload <local_path> <remote_path>")
+				fmt.Println("[!] Error: Both local and remote paths are required")
+				fmt.Println("    Usage: upload <local_path> <remote_path>")
+				fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
 			}
 		case "migrate":
 			if len(args) >= 1 {
 				if pid, err := strconv.Atoi(args[0]); err == nil {
-					is.migrateProcess(sessionID, pid)
+					if pid <= 0 {
+						fmt.Printf("[!] Error: Invalid process ID: %d\n", pid)
+						fmt.Println("    Process ID must be a positive number")
+						fmt.Println("    Example: migrate 1234")
+					} else {
+						is.migrateProcess(sessionID, pid)
+					}
 				} else {
-					fmt.Println("[!] Usage: migrate <pid>")
+					fmt.Printf("[!] Error: Invalid process ID '%s': must be a number\n", args[0])
+					fmt.Println("    Usage: migrate <pid>")
+					fmt.Println("    Example: migrate 1234")
 				}
 			} else {
-				fmt.Println("[!] Usage: migrate <pid>")
+				fmt.Println("[!] Error: Process ID is required")
+				fmt.Println("    Usage: migrate <pid>")
+				fmt.Println("    Example: migrate 1234")
 			}
 		case "cat":
 			if len(args) >= 1 {
 				is.executeFilesystemOp(sessionID, "cat", args[0])
 			} else {
-				fmt.Println("[!] Usage: cat <path>")
+				fmt.Println("[!] Error: File path is required")
+				fmt.Println("    Usage: cat <path>")
+				fmt.Println("    Example: cat /etc/passwd")
 			}
 		case "head":
 			if len(args) >= 1 {
 				lines := 10
 				if len(args) >= 2 {
 					if n, err := strconv.Atoi(args[1]); err == nil {
-						lines = n
+						if n <= 0 {
+							fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
+							fmt.Println("    Usage: head <path> [lines]")
+							fmt.Println("    Example: head /etc/passwd 20")
+						} else {
+							lines = n
+							is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
+						}
+					} else {
+						fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
+						fmt.Println("    Usage: head <path> [lines]")
+						fmt.Println("    Example: head /etc/passwd 20")
 					}
+				} else {
+					is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
 				}
-				is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
 			} else {
-				fmt.Println("[!] Usage: head <path> [lines]")
+				fmt.Println("[!] Error: File path is required")
+				fmt.Println("    Usage: head <path> [lines]")
+				fmt.Println("    Example: head /etc/passwd 20")
 			}
 		case "tail":
 			if len(args) >= 1 {
 				lines := 10
 				if len(args) >= 2 {
 					if n, err := strconv.Atoi(args[1]); err == nil {
-						lines = n
+						if n <= 0 {
+							fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
+							fmt.Println("    Usage: tail <path> [lines]")
+							fmt.Println("    Example: tail /var/log/syslog 50")
+						} else {
+							lines = n
+							is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
+						}
+					} else {
+						fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
+						fmt.Println("    Usage: tail <path> [lines]")
+						fmt.Println("    Example: tail /var/log/syslog 50")
 					}
+				} else {
+					is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
 				}
-				is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
 			} else {
-				fmt.Println("[!] Usage: tail <path> [lines]")
+				fmt.Println("[!] Error: File path is required")
+				fmt.Println("    Usage: tail <path> [lines]")
+				fmt.Println("    Example: tail /var/log/syslog 50")
 			}
 		case "grep":
 			if len(args) >= 2 {
 				is.executeFilesystemOp(sessionID, "grep", args[1], args[0])
 			} else {
-				fmt.Println("[!] Usage: grep <pattern> <path>")
+				fmt.Println("[!] Error: Both pattern and path are required")
+				fmt.Println("    Usage: grep <pattern> <path>")
+				fmt.Println("    Example: grep 'ERROR' /var/log/app.log")
 			}
 		case "help", "h":
 			fmt.Println("Session commands:")
@@ -1239,7 +1294,14 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 
 func (is *InteractiveServer) executeShellCommand(sessionID, command string) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if command == "" {
+		fmt.Println("[!] Error: Command cannot be empty")
+		fmt.Println("    Usage: shell <command>")
+		fmt.Println("    Example: shell whoami")
 		return
 	}
 	
@@ -1258,13 +1320,22 @@ func (is *InteractiveServer) executeShellCommand(sessionID, command string) {
 
 func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if moduleID == "" {
+		fmt.Println("[!] Error: Module ID cannot be empty")
+		fmt.Println("    Usage: module <module_id> [args...]")
+		fmt.Println("    Example: module powershell/credentials/mimikatz")
 		return
 	}
 	
 	module, ok := is.moduleRegistry.GetModule(moduleID)
 	if !ok {
-		fmt.Printf("[!] Module not found: %s\n", moduleID)
+		fmt.Printf("[!] Error: Module not found: %s\n", moduleID)
+		fmt.Println("    Use 'modules' command to list available modules")
+		fmt.Println("    Note: Module IDs are case-sensitive")
 		return
 	}
 	
@@ -1294,7 +1365,14 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 
 func (is *InteractiveServer) downloadFile(sessionID, remotePath string) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if remotePath == "" {
+		fmt.Println("[!] Error: Remote path cannot be empty")
+		fmt.Println("    Usage: download <remote_path>")
+		fmt.Println("    Example: download C:\\Windows\\System32\\config\\sam")
 		return
 	}
 	
@@ -1312,13 +1390,36 @@ func (is *InteractiveServer) downloadFile(sessionID, remotePath string) {
 
 func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if localPath == "" {
+		fmt.Println("[!] Error: Local path cannot be empty")
+		fmt.Println("    Usage: upload <local_path> <remote_path>")
+		fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
+		return
+	}
+	
+	if remotePath == "" {
+		fmt.Println("[!] Error: Remote path cannot be empty")
+		fmt.Println("    Usage: upload <local_path> <remote_path>")
+		fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
+		return
+	}
+	
+	// Check if local file exists
+	if _, err := os.Stat(localPath); os.IsNotExist(err) {
+		fmt.Printf("[!] Error: Local file not found: %s\n", localPath)
+		fmt.Println("    Usage: upload <local_path> <remote_path>")
+		fmt.Println("    Note: Provide the full path to the file you want to upload")
 		return
 	}
 	
 	data, err := os.ReadFile(localPath)
 	if err != nil {
-		fmt.Printf("[!] Failed to read file: %v\n", err)
+		fmt.Printf("[!] Error: Failed to read file: %v\n", err)
+		fmt.Println("    Check file permissions and ensure the file is readable")
 		return
 	}
 	
@@ -1332,12 +1433,20 @@ func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string)
 		},
 	}
 	is.server.EnqueueTask(task)
-	fmt.Printf("[+] Queued upload: %s -> %s\n", localPath, remotePath)
+	fmt.Printf("[+] Queued upload: %s -> %s (%d bytes)\n", localPath, remotePath, len(data))
 }
 
 func (is *InteractiveServer) migrateProcess(sessionID string, pid int) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if pid <= 0 {
+		fmt.Printf("[!] Error: Invalid process ID: %d\n", pid)
+		fmt.Println("    Usage: migrate <pid>")
+		fmt.Println("    Process ID must be a positive number")
+		fmt.Println("    Example: migrate 1234")
 		return
 	}
 	
@@ -1356,7 +1465,21 @@ func (is *InteractiveServer) migrateProcess(sessionID string, pid int) {
 
 func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path string, args ...string) {
 	if is.server == nil {
-		fmt.Println("[!] Server not initialized")
+		fmt.Println("[!] Error: Server not initialized")
+		return
+	}
+	
+	if path == "" {
+		fmt.Printf("[!] Error: Path cannot be empty for %s operation\n", op)
+		fmt.Printf("    Usage: %s <path>\n", op)
+		switch op {
+		case "head", "tail":
+			fmt.Printf("    Example: %s /etc/passwd [lines]\n", op)
+		case "grep":
+			fmt.Println("    Example: grep <pattern> <path>")
+		default:
+			fmt.Printf("    Example: %s /etc/passwd\n", op)
+		}
 		return
 	}
 	
