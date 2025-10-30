@@ -1,0 +1,73 @@
+name: Get OUs
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  An Active Directory enumeration module that retrieves all Organizational
+  Units (OUs) within the target domain. This module performs essential
+  reconnaissance to understand the domain's organizational structure and
+  administrative hierarchy for targeted attacks and social engineering.
+
+  The module queries Active Directory via LDAP to extract all OU objects
+  that define the domain's organizational structure. This information is
+  essential for understanding how the domain is organized and identifying
+  potential targets based on organizational positioning and administrative
+  responsibilities.
+
+  The enumeration results provide critical intelligence for targeted attacks
+  and social engineering by revealing the complete organizational structure
+  within the domain. This module is fundamental for domain reconnaissance
+  and helps operators understand the administrative hierarchy and identify
+  potential targets for privilege escalation and lateral movement based on
+  organizational roles and responsibilities.
+software: ''
+tactics: []
+techniques:
+  - T1482
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to grab run on.
+    required: true
+    value: ''
+  - name: LDAPAddress
+    description: LDAP IP/Hostname
+    required: true
+    value: ''
+  - name: BindDN
+    description: user@penlab.local
+    required: true
+    value: ''
+  - name: Password
+    description: Password to connect to LDAP
+    required: false
+    value: ''
+script: |-
+  import sys, os, subprocess, re
+  BindDN = "{{ BindDN }}"
+  LDAPAddress = "{{ LDAPAddress }}"
+  password = "{{ Password }}"
+
+  regex = re.compile('.+@([^.]+)\..+')
+  global tld
+  match = re.match(regex, BindDN)
+  tld = match.group(1)
+  global ext
+  ext = BindDN.split('.')[1]
+
+
+  cmd = \"""ldapsearch -x -h {} -b "dc={},dc={}" -D {} -w {} "(OU=*)" ""\".format(LDAPAddress, tld, ext, BindDN, password)
+  output = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+  output2 = subprocess.Popen(["grep", "ou:"],stdin=output.stdout, stdout=subprocess.PIPE,universal_newlines=True)
+  output.stdout.close()
+  out,err = output2.communicate()
+  print("")
+  print(out)

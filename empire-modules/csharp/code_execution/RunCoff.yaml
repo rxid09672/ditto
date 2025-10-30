@@ -1,0 +1,115 @@
+name: RunCoff
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  C# implementation of a COFF loader that provides compatibility with Cobalt
+  Strike Beacon Object Files. This allows for CS BOF files to be used in  outside
+  frameworks. COFF loader allows for the execution of C/C++ programs as position independent
+  code. The user must pass in the Format String, Entry Point, and Arguments.
+software: ''
+tactics: [TA0002]
+techniques: [T1106, T1620]
+background: true
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+comments:
+  - https://github.com/BC-SECURITY/CS_COFFLoader/tree/main
+options:
+  - name: File
+    description: Beacon object file to load and execute.
+    required: false
+    type: file
+  - name: EntryPoint
+    description: Name of the function exported to execute in the beacon object file.
+    required: false
+    value: go
+  - name: Format String
+    description: The format string must only include the following characters b,
+      i, s, z, Z
+    required: false
+    value: ''
+  - name: Arguments
+    description: List of arguments that will be passed to the beacon. <arg1> [arg2]
+      [arg2]
+    required: false
+    value: ''
+csharp:
+  UnsafeCompile: true
+  CompatibleDotNetVersions:
+    - net40
+  Code: |
+    using System;
+    using System.IO;
+    using System.Linq;
+    using CoffLoader;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                TextWriter originalOutput = Console.Out;
+                TextWriter originalError = Console.Error;
+                Console.SetOut(stringWriter);
+                Console.SetError(stringWriter);
+
+                try
+                {
+                    string functionName = args[0];
+                    string coffData = args[1];
+                    string argDataHex = args[2];
+
+                    string result = CoffLoader.Program.RunCoff(functionName, coffData, argDataHex);
+
+                    Console.WriteLine(result);
+                    string output = CoffLoader.Program.BeaconGetOutputData();
+                    Console.WriteLine(output);
+                }
+                catch (Exception ex)
+                {
+                    stringWriter.WriteLine($"Error: {ex.Message}");
+                }
+                finally
+                {
+                    Console.SetOut(originalOutput);
+                    Console.SetError(originalError);
+                }
+                Console.WriteLine(stringWriter.ToString());
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: CoffLoader
+      Description: A tool to run object files, mainly beacon object files (BOF),
+        in .Net.
+      Location: CS_COFFLoader\CoffLoader\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - net40
+      ReferenceAssemblies:
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: net40
+        - Name: System.Data.dll
+          Location: net40\System.Data.dll
+          DotNetVersion: net40
+        - Name: System.XML.dll
+          Location: net40\System.XML.dll
+          DotNetVersion: net40
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []
+advanced:
+  custom_generate: true

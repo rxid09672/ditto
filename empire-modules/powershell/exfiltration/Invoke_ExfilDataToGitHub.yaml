@@ -1,0 +1,66 @@
+name: Invoke-ExfilDataToGitHub
+authors:
+  - name: Nga Hoang
+    handle: ''
+    link: ''
+description: |
+  Exfiltrates data to GitHub repositories using authenticated REST API
+  calls with Personal Access Tokens (PAT). Supports both file uploads (LocalFilePath)
+  and direct data insertion (Data), including recursive directory uploads and file
+  filtering (e.g., *.pdf). The PAT is provided as a Base64-encoded string to minimize
+  credential exposure.
+software: ''
+tactics: [TA0010]
+techniques: [T1567.001]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '3'
+comments:
+  - https://github.com/nnh100/exfil
+options:
+  - name: Agent
+    description: Agent to run module on
+    required: true
+    value: ''
+  - name: GHUser
+    description: GitHub Username
+    required: true
+    value: ''
+  - name: GHRepo
+    description: GitHub Repository
+    required: true
+    value: ''
+  - name: GHPAT
+    description: GitHub Personal Access Token base64 encoded
+    required: true
+    value: ''
+  - name: GHFilePath
+    description: GitHub filepath not including the filename so eg. testfolder/
+    required: true
+    value: ''
+  - name: LocalFilePath
+    description: 'Local file path of files to upload '
+    required: false
+    value: ''
+  - name: GHFileName
+    description: GitHub filename eg. testfile.txt
+    required: false
+    value: ''
+  - name: Filter
+    description: Local file filter eg. *.* to get all files or *.pdf for all pdfs
+    required: false
+    value: ''
+  - name: Data
+    description: Data to write to file
+    required: false
+    value: ''
+  - name: Recurse
+    description: 'Recursively get files in subfolders eg. set True or leave blank
+      (do not use for Data exfil) '
+    required: false
+    value: ''
+script_path: 'exfil/Invoke-ExfilDataToGitHub.ps1'
+script_end: 'Invoke-ExfilDataToGitHub {{ PARAMS }}'

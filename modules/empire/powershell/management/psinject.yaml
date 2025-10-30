@@ -1,0 +1,98 @@
+name: Invoke-PSInject
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+  - name: ''
+    handle: '@sixdub'
+    link: ''
+  - name: leechristensen (@tifkin_)
+    handle: ''
+    link: ''
+description: |
+  Injects and executes PowerShell commands or scripts into the memory
+  space of another process on the target system. This technique allows Empire to
+  run PowerShell code while masking the execution under a legitimate process, bypassing
+  process-based monitoring and potentially evading detection by security products.
+
+  The module uses reflective injection techniques to create a new PowerShell runtime
+  environment within the target process, then executes the specified script or
+  commands within that isolated environment. This approach avoids spawning powershell.exe,
+  which is often monitored by security solutions.
+software: ''
+tactics: [TA0002]
+techniques: [T1055.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - http://sixdub.net
+options:
+  - name: Process
+    description: ProcessID or name.
+    required: true
+    value: 'ProcId'
+    strict: true
+    internal: true
+    suggested_values:
+      - ProcId
+      - ProcName
+  - name: ProcId
+    description: ProcessID to inject into.
+    required: false
+    value: ''
+    depends_on:
+      - name: Process
+        values: ['ProcId']
+  - name: ProcName
+    description: Process name to inject into.
+    required: false
+    value: ''
+    depends_on:
+      - name: Process
+        values: ['ProcName']
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Obfuscate the launcher powershell code, uses the ObfuscateCommand_Launcher
+      for obfuscation types.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate_Launcher
+      switch is True.
+    required: false
+    value: 'Token\All\1'
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: management/Invoke-PSInject.ps1
+advanced:
+  custom_generate: true

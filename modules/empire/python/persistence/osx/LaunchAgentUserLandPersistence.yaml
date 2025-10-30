@@ -1,0 +1,60 @@
+name: LaunchAgent - UserLand Persistence
+authors:
+  - name: Chris Ross
+    handle: '@xorrior'
+    link: https://twitter.com/xorrior
+  - name: ''
+    handle: '@n0pe_sled'
+    link: ''
+description: |
+  Creates and installs a macOS LaunchAgent plist file in the user's home
+  directory to establish persistence across user sessions and system reboots.
+  The LaunchAgent is configured to automatically start the Empire agent when
+  the user logs in, providing continuous access to the compromised system
+  without requiring administrative privileges. The module creates a properly
+  formatted plist file with the specified name and installs it in the user's
+  LaunchAgents directory. Includes safety checks for security software like
+  LittleSnitch and sandbox detection to avoid detection. Provides reliable
+  user-level persistence mechanism that survives user logouts and system
+  restarts.
+software: ''
+tactics: []
+techniques:
+  - T1055
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '2.6'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: SafeChecks
+    description: Checks for LittleSnitch or a SandBox, exit the staging process if
+      true. Defaults to True.
+    required: true
+    value: 'True'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: PLISTName
+    description: Name of the PLIST to install. Name will also be used for the plist
+      file.
+    required: true
+    value: com.proxy.initialize.plist
+advanced:
+  custom_generate: true

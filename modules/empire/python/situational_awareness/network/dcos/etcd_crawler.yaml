@@ -1,0 +1,76 @@
+name: Etcd Crawler
+authors:
+  - name: ''
+    handle: '@scottjpack'
+    link: ''
+  - name: Bryce Kunz
+    handle: '@TweekFawkes'
+    link: https://twitter.com/TweekFawkes
+description: |
+  Crawls and extracts key-value pairs from an etcd distributed key-value
+  store using the etcd HTTP API. Recursively traverses the etcd hierarchy
+  to discover configuration data, secrets, and application settings stored
+  in the distributed configuration store. Supports configurable depth
+  limits for controlling the scope of the crawl. Useful for reconnaissance
+  of container orchestration platforms, discovering sensitive configuration
+  data, and understanding the architecture of cloud-native applications
+  that use etcd for configuration management.
+software: ''
+tactics: []
+techniques:
+  - T1426
+background: true
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - 'Docs: https://coreos.com/etcd/docs/latest/api.html'
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: Target
+    description: FQDN, domain name, or hostname to lookup on the remote target.
+    required: true
+    value: etcd.mesos
+  - name: Port
+    description: The etcd client communication port, typically 2379 or 1026.
+    required: true
+    value: '1026'
+  - name: Depth
+    description: How far into the ETCD hierarchy to recurse.  0 for root keys only,
+      "-1" for no limitation
+    required: true
+    value: '-1'
+script: |-
+  import urllib2
+  import json
+
+  target = "{{ Target }}"
+  port = "{{ Port }}"
+  depth = "{{ Depth }}"
+
+  def get_etcd_keys(target, port, path, depth):
+          keys = {}
+          resp = urllib2.urlopen("http://" + target + ":" + port + "/v2/keys" + path)
+          r = resp.read()
+          r = json.loads(r)
+          for n in r['node']['nodes']:
+                  if "dir" in n.keys() and (depth>0):
+                          keys.update(get_etcd_keys(target, port, n['key'], depth-1))
+                  elif "dir" in n.keys() and (depth == -1):
+                          keys.update(get_etcd_keys(target, port, n['key'], depth))
+                  elif "value" in n.keys():
+                          keys[n['key']] = n['value']
+                  else:
+                          keys[n['key']] = "directory"
+          return keys
+
+  def main():
+          k = get_etcd_keys(target, port, "/", depth)
+          print(str(k))
+
+  main()

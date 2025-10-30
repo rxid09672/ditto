@@ -1,0 +1,70 @@
+name: Get-KerberosServiceTicket
+authors:
+  - name: ''
+    handle: '@OneLogicalMyth'
+    link: ''
+description: |
+  A network reconnaissance module that retrieves Kerberos service
+  ticket information from domain controller event logs. This module
+  analyzes Windows Security Event ID 4769 to identify service
+  ticket requests and associated user and computer information.
+
+  The module can only run on domain controllers where Kerberos
+  authentication events are logged. It extracts IP addresses,
+  usernames, and service information from service ticket requests,
+  providing valuable intelligence about user activity and service
+  access patterns across the domain.
+
+  This technique is particularly useful for understanding user
+  behavior, identifying which users access specific services,
+  and mapping user-to-computer relationships. The information
+  gathered can be used for user hunting, lateral movement
+  planning, and understanding the overall authentication
+  landscape within the Active Directory environment.
+software: ''
+tactics: [TA0007]
+techniques: [T1018]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/OneLogicalMyth/Empire
+options:
+  - name: Agent
+    description: Agent to use for the event log search
+    required: true
+    value: ''
+  - name: UserName
+    description: UserName to find, must be in the format of username@domain.local
+    required: false
+    value: ''
+  - name: MaxEvents
+    description: Maximum events to return
+    required: false
+    value: '1000'
+  - name: ExcludeComputers
+    description: Exclude computers from the results. ($True or $False)
+    required: false
+    value: 'True'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/Get-KerberosServiceTicket.ps1
+script_end: Get-KerberosServiceTicket {{ PARAMS }} | Format-Table -AutoSize | {{
+  OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Get-KerberosServiceTicket completed'

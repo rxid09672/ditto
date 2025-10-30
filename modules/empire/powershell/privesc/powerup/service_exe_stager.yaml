@@ -1,0 +1,86 @@
+name: Install-ServiceBinary
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A privilege escalation module that performs service binary replacement
+  to achieve elevated privileges. This technique backs up the original
+  service executable and replaces it with a malicious binary that
+  launches a stager to establish a privileged connection.
+
+  The module identifies vulnerable services and creates a backup of
+  the original service binary before replacing it with a custom
+  executable. The replacement binary is designed to launch a stager
+  that connects back to the Empire server with elevated privileges,
+  while maintaining the appearance of normal service functionality.
+
+  This technique is particularly effective because services often
+  run with elevated privileges, providing an immediate path to
+  administrative access. The module includes options for self-deletion
+  of the launcher file and obfuscation to maintain operational
+  security. This approach is based on the PowerUp toolkit and
+  represents a sophisticated method of service-based privilege escalation.
+software: S0194
+tactics: [TA0003, TA0004]
+techniques: [T1543.010, T1068]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellEmpire/PowerTools/tree/master/PowerUp
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: ServiceName
+    description: The service name to manipulate.
+    required: true
+    value: ''
+  - name: Delete
+    description: Switch. Have the launcher.bat delete itself after running.
+    required: false
+    value: 'True'
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: privesc/PowerUp.ps1
+advanced:
+  custom_generate: true

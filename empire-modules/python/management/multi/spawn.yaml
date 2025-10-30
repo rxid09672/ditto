@@ -1,0 +1,38 @@
+name: Spawn
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Creates and launches a new Empire agent process on the target system using
+  the specified listener configuration. This module enables process spawning
+  capabilities to establish additional agent instances for redundancy,
+  lateral movement, or process migration. The new agent connects to the
+  designated listener with configurable User-Agent settings.
+software: ''
+tactics: []
+techniques:
+  - T1050
+background: true
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '3'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+advanced:
+  custom_generate: true

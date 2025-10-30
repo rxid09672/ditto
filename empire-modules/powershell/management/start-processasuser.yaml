@@ -1,0 +1,65 @@
+name: Start-ProcessAsUser
+authors:
+  - name: Matt Graeber
+    handle: '@mattifestation'
+    link: https://twitter.com/mattifestation
+  - name: Lee Christensen
+    handle: '@tifkin_'
+    link: https://twitter.com/tifkin_
+description: |
+  Executes a command or launches a process under the context of specified
+  user credentials without requiring an interactive logon. This module leverages
+  Windows API functionality to start a process as another user, optionally using
+  the LOGON_NETCREDENTIALS_ONLY flag to provide network-only credentials (similar
+  to "runas.exe /netonly").
+
+  This technique is useful for accessing network resources,
+  running commands with alternate permissions, or performing actions as a different
+  user without fully logging into their session. It is commonly used for lateral
+  movement, privilege separation, and operational flexibility in post-exploitation
+  scenarios.
+
+  The module supports specifying domain, username, and password, and
+  can execute any command or application with the provided credentials. The NetOnly
+  option allows the process to use the supplied credentials for network authentication
+  while retaining the local user's context.
+software: ''
+tactics: [TA0004, TA0005]
+techniques: [T1078.002, T1078.003]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/leechristensen/Random/blob/master/PowerShellScripts/Start-ProcessAsUser.ps1
+options:
+  - name: Domain
+    description: Domain of the user account to use for the new process (leave blank
+      for local accounts).
+    required: false
+    value: ''
+  - name: Username
+    description: Username to use for the new process.
+    required: false
+    value: ''
+  - name: Password
+    description: Password for the specified user account.
+    required: false
+    value: ''
+  - name: Cmd
+    description: Command or application to execute under the specified credentials.
+    required: false
+    value: ''
+  - name: NetOnly
+    description: Start the process using the LOGON_NETCREDENTIALS_ONLY flag (equivalent
+      to running "runas.exe /netonly").
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script_path: management/Start-ProcessAsUser.ps1
+script_end: Start-ProcessAsUser {{ PARAMS }}

@@ -1,0 +1,47 @@
+name: Invoke-Phant0m
+authors:
+  - name: ''
+    handle: '@leesoh'
+    link: ''
+description: |
+  Kills Windows Event Log Service threads to disable logging and evade
+  detection mechanisms. This module targets the Windows Event Log service by terminating
+  its worker threads, effectively stopping event logging without disabling the
+  service itself.
+
+  Event log manipulation is a critical anti-forensics technique
+  that prevents security events from being recorded, making post-incident analysis
+  more difficult. By killing the service threads rather than stopping the service,
+  the module maintains the appearance of normal system operation while preventing
+  new events from being logged.
+software: ''
+tactics: [TA0005]
+techniques: [T1562.006]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - 'Invoke-Phant0m: https://github.com/hlldz/Invoke-Phant0m.ps1'
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: management/Invoke-Phant0m.ps1
+script_end: Invoke-Phant0m {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Invoke-Phant0m
+  completed'

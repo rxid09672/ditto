@@ -1,0 +1,119 @@
+name: Get-DomainSubnet
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Enumerates Active Directory subnets to identify network segments, IP
+  address ranges, and site associations within the domain. This module leverages
+  PowerView's Get-DomainSubnet function to query the domain's subnet container and
+  retrieve comprehensive information about all network subnets, including their IP
+  address ranges, site associations, descriptions, and location information. The
+  reconnaissance capability is essential for understanding the network's IP addressing
+  scheme, identifying network segmentation boundaries, and mapping the relationship
+  between network subnets and Active Directory sites. By analyzing subnet information,
+  operators can identify potential network-based attack vectors, understand the network
+  topology, and plan lateral movement strategies that account for network boundaries.
+  The module supports filtering by site name and custom LDAP queries to focus reconnaissance
+  efforts on specific network areas. This information is crucial for network reconnaissance,
+  understanding the IP addressing architecture, and identifying potential network-based
+  privilege escalation opportunities within specific subnet ranges.
+software: S0194
+tactics: [TA0007]
+techniques: [T1482, T1069.002, T1615, T1016]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Identity
+    description: A SamAccountName, DistinguishedName, SID, GUID, or a dns host name,
+      wildcards accepted.
+    required: false
+    value: ''
+  - name: SiteName
+    description: Only return subnets from the specified SiteName.
+    required: false
+    value: ''
+  - name: Domain
+    description: The domain to use for the query, defaults to the current domain.
+    required: false
+    value: ''
+  - name: LDAPFilter
+    description: Specifies an LDAP query string that is used to filter Active Directory
+      objects.
+    required: false
+    value: ''
+  - name: Properties
+    description: Specifies the properties of the output object to retrieve from the
+      server.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: SecurityMasks
+    description: Specifies an option for examining security information of a directory
+      object. One of "Dacl", "Group", "None", "Owner", "Sacl".
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: FindOne
+    description: Only return one result object.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainSubnet {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-DomainSubnet completed'

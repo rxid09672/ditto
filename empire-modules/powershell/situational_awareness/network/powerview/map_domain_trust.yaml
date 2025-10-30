@@ -1,0 +1,117 @@
+name: Get-DomainTrustMapping
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Performs comprehensive domain trust enumeration and mapping to identify
+  all reachable domains, trust relationships, and cross-domain access opportunities.
+  This module leverages PowerView's Get-DomainTrustMapping function to systematically
+  discover and analyze trust relationships between domains, forests, and external
+  domains. The reconnaissance capability is essential for understanding the broader
+  Active Directory environment, identifying lateral movement paths across domain
+  boundaries, and mapping the complete trust topology. By analyzing trust relationships,
+  operators can identify potential cross-domain attack vectors, understand authentication
+  flows between domains, and discover opportunities for privilege escalation across
+  domain boundaries. The module supports multiple enumeration methods including LDAP
+  queries, .NET APIs, and native Windows API calls to ensure comprehensive trust
+  discovery. This information is crucial for enterprise-wide reconnaissance, cross-domain
+  lateral movement planning, and understanding the complete scope of the target environment.
+  The module outputs results in CSV format for easy analysis and integration with
+  other reconnaissance tools.
+software: S0194
+tactics: [TA0007]
+techniques: [T1482, T1069.002, T1615]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: API
+    description: Use an api call (DsEnumerateDomainTrusts) to enumerate the trusts
+      instead of the built-in LDAP method
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: NET
+    description: Use .NET queries to enumerate trusts instead of the default LDAP
+      method
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: LDAPFilter
+    description: Specifies an LDAP query string that is used to filter Active Directory
+      objects.
+    required: false
+    value: ''
+  - name: Properties
+    description: Specifies the properties of the output object to retrieve from the
+      server.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: SecurityMasks
+    description: Specifies an option for examining security information of a directory
+      object. One of "Dacl", "Group", "None", "Owner", "Sacl".
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: ConvertTo-Csv -NoTypeInformation
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainTrustMapping {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ +
+  "`n"}; 'Get-DomainTrustMapping completed'

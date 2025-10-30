@@ -1,0 +1,68 @@
+name: Invoke-Message
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Displays a custom pop-up message box on the target user's desktop, simulating
+  system alerts, error messages, or other notifications for psychological manipulation
+  or humorous effect. This module leverages PowerShell to invoke a Windows message
+  box with customizable text, icon type, and title, allowing operators to craft convincing
+  or disruptive messages. The technique is useful for red team operations, social
+  engineering demonstrations, or pranks, and can be used to induce confusion, prompt
+  user action, or simply amuse. The message box appears as a legitimate system dialog,
+  increasing its believability and potential impact. Operators should use this module
+  responsibly, as repeated or alarming messages may disrupt user productivity or
+  cause unnecessary concern. No administrative privileges are required, making it
+  effective in a wide range of environments.
+software: ''
+tactics: [TA0040]
+techniques: [T1491.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - http://blog.logrhythm.com/security/do-you-trust-your-computer/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: MsgText
+    description: Message text to display.
+    required: true
+    value: Lost contact with the Domain Controller.
+  - name: IconType
+    description: Critical, Question, Exclamation, or Information
+    required: true
+    value: Critical
+    strict: true
+    suggested_values:
+      - Critical
+      - Question
+      - Exclamation
+      - Information
+  - name: Title
+    description: Title of the message box to display.
+    required: true
+    value: ERROR - 0xA801B720
+script: |
+  function Invoke-Message {
+      [CmdletBinding()]
+      Param (
+          [Parameter(Mandatory = $True, Position = 0)]
+          [String] $MsgText,
+
+          [Parameter(Mandatory = $False, Position = 1)]
+          [String] $IconType = 'Critical',
+
+          [Parameter(Mandatory = $False, Position = 2)]
+          [String] $Title = 'ERROR - 0xA801B720'
+      )
+
+      Add-Type -AssemblyName Microsoft.VisualBasic
+      $null = [Microsoft.VisualBasic.Interaction]::MsgBox($MsgText, "OKOnly,MsgBoxSetForeground,SystemModal,$IconType", $Title)
+  }
+script_end: Invoke-Message {{ PARAMS }}

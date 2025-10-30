@@ -1,0 +1,79 @@
+name: Invoke-Script
+authors:
+  - name: ''
+    handle: '@JoelGMSec'
+    link: ''
+description: |
+  PowerShell-based ransomware simulator that encrypts and decrypts files
+  using AES-256 with optional recovery key support. Supports C2 exfiltration of
+  data during encryption and includes a demonstration mode that changes the desktop
+  wallpaper and displays a ransom note popup.
+software: ''
+tactics: [TA0040]
+techniques: [T1486, T1491.001, T1140, T1083]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Mode
+    description: Encrypt or Decrypt files.
+    required: true
+    value: 'Encrypt'
+    suggested_values:
+      - 'Encrypt'
+      - 'Decrypt'
+    strict: true
+  - name: Demo
+    description: Remove wallpaper and popup ransom.
+    required: true
+    value: 'False'
+    strict: true
+    suggested_values:
+      - 'True'
+      - 'False'
+    depends_on:
+      - name: Mode
+        values: ['Encrypt']
+  - name: RecoveryKey
+    description: Decrypt all files with recovery key string
+    required: false
+    value: ''
+    depends_on:
+      - name: Mode
+        values: ['Decrypt']
+  - name: Exfiltrate
+    description: Exfiltrate files to Command & Control Server.
+    required: true
+    value: 'False'
+    suggested_values:
+      - 'True'
+      - 'False'
+    strict: true
+    depends_on:
+      - name: Mode
+        values: ['Encrypt']
+  - name: C2Server
+    description: Command & Control Server IP Address.
+    required: false
+    value: ''
+    depends_on:
+      - name: Mode
+        values: ['Encrypt']
+  - name: C2Port
+    description: Command & Control Server Port.
+    required: false
+    value: ''
+    depends_on:
+      - name: Mode
+        values: ['Encrypt']
+  - name: Directory
+    description: Directory to encrypt or decrypt.
+    required: true
+    value: ''
+script_path: 'exfil/PSRansom.ps1'
+advanced:
+  custom_generate: true

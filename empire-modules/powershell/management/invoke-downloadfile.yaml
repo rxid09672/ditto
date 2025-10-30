@@ -1,0 +1,44 @@
+name: Invoke-DownloadFile
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  A PowerShell module that downloads files from remote sources using
+  native PowerShell capabilities. This module provides a clean and
+  efficient method for transferring files to compromised systems
+  without requiring additional tools or external dependencies.
+
+  The module leverages PowerShell's built-in web request capabilities
+  to download files from HTTP, HTTPS, or FTP sources. This approach
+  is particularly useful for post-exploitation activities where
+  additional tools need to be deployed or when data exfiltration
+  requires file transfer capabilities.
+
+  The download functionality supports various file types and can
+  handle large files efficiently. This module is essential for
+  maintaining operational capabilities by ensuring that necessary
+  tools and payloads can be deployed to target systems as needed
+  during security assessments and penetration testing operations.
+software: ''
+tactics: [TA0010]
+techniques: [T1041]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/Smalls1652/Get-RandomPowerShellScripts/blob/master/Actions/Networking/Invoke-DownloadFile.ps1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Url
+    description: Remote directory to download file from.
+    required: true
+    value: ''
+script_path: management/Invoke-DownloadFile.ps1
+script_end: Invoke-DownloadFile {{ PARAMS }}

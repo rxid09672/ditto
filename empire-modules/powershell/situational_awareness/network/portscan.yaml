@@ -1,0 +1,122 @@
+name: Invoke-Portscan
+authors:
+  - name: Rich Lundeen
+    handle: ''
+    link: ''
+description: |
+  A network reconnaissance module that performs comprehensive port
+  scanning across specified hosts and network ranges. This module
+  uses native PowerShell socket connections to identify open ports
+  and services, providing detailed network visibility for situational
+  awareness and security assessments.
+
+  The module supports various scanning modes including targeted
+  port scanning, top port scanning, ping-only discovery, and
+  comprehensive network enumeration. It can scan individual hosts,
+  host ranges, or read target lists from files, making it flexible
+  for different network reconnaissance scenarios.
+
+  Based loosely on nmap functionality, this module provides
+  multiple output formats including greppable, XML, and readable
+  formats for integration with other security tools. The module
+  includes options for host discovery, port filtering, and output
+  customization, making it an essential tool for network mapping
+  and service enumeration in penetration testing and security
+  assessment scenarios.
+software: ''
+tactics: [TA0007]
+techniques: [T1046]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/mattifestation/PowerSploit/blob/master/Recon/Invoke-Portscan.ps1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Hosts
+    description: Hosts to scan.
+    required: false
+    value: '127.0.0.1'
+  - name: HostFile
+    description: Input hosts from file (on the target)
+    required: false
+    value: ''
+  - name: ExcludeHosts
+    description: Exclude these comma separated hosts.
+    required: false
+    value: ''
+  - name: Ports
+    description: Comma separated ports to scan for.
+    required: false
+    value: ''
+  - name: TopPorts
+    description: Scan for X top ports, default 50.
+    required: false
+    value: '50'
+    strict: false
+    suggested_values:
+      - 10
+      - 25
+      - 50
+  - name: SkipDiscovery
+    description: Treat all hosts as online.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: PingOnly
+    description: Ping only, don't scan for ports.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: Open
+    description: Only show hosts with open ports.
+    required: false
+    value: 'True'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: GrepOut
+    description: Greppable (.gnmap) output file.
+    required: false
+    value: ''
+  - name: XmlOut
+    description: .XML output file.
+    required: false
+    value: ''
+  - name: ReadableOut
+    description: Readable (.nmap) output file.
+    required: false
+    value: ''
+  - name: AllformatsOut
+    description: Output file of all formats.
+    required: false
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/Invoke-Portscan.ps1
+script_end: Invoke-PortScan -noProgressMeter -f {{ PARAMS }} | Select-Object HostName,@{name='OpenPorts';expression={$_.openPorts
+  -join ','}} | ft -wrap | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Invoke-Portscan
+  completed'

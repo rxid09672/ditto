@@ -1,0 +1,34 @@
+name: resources
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: Displays detailed system resource information including memory utilization
+  (total, used, and available) and disk space metrics for the primary storage drive.
+software: ''
+tactics: [TA0007]
+techniques: [T1082]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: bof
+min_language_version: ''
+comments:
+  - https://github.com/trustedsec/CS-Situational-Awareness-BOF
+options:
+  - name: Architecture
+    description: Architecture of the beacon_funcs.o to generate with (x64 or x86).
+    required: true
+    value: x64
+    strict: true
+    suggested_values:
+      - x64
+      - x86
+bof:
+  x86: bof/situational_awareness/resources/resources.x86.o
+  x64: bof/situational_awareness/resources/resources.x64.o
+  entry_point: ''
+  format_string: ''
+script_path: ''
+script_end: ''

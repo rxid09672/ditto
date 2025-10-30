@@ -1,0 +1,107 @@
+name: Invoke-DCOM
+authors:
+  - name: ''
+    handle: '@rvrsh3ll'
+    link: ''
+description: |
+  Executes commands or Empire stagers on remote hosts using Distributed
+  Component Object Model (DCOM) for lateral movement. DCOM provides object-oriented
+  interfaces that can be remotely executed with appropriate permissions (typically
+  admin) without triggering suspicious processes like PsExec. This module supports
+  multiple COM application methods including MMC20.Application, ShellWindows, ShellBrowserWindow,
+  and ExcelDDE, allowing flexibility to evade detection or adapt to different target
+  environments. It's an effective technique for establishing remote access when WMI
+  or other methods are monitored but DCOM isn't explicitly blocked.
+software: ''
+tactics: [TA0008]
+techniques: [T1021.003]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Payload
+    description: Manually build command or use Empire.
+    required: true
+    value: 'Empire'
+    strict: true
+    suggested_values:
+      - Manual
+      - Empire
+  - name: ComputerName
+    description: Host[s] to execute the stager on, comma separated.
+    required: true
+    value: ''
+  - name: Method
+    description: COM method to use.
+    strict: true
+    suggested_values:
+      - MMC20.Application
+      - ShellWindows
+      - ShellBrowserWindow
+      - ExcelDDE
+    value: ShellWindows
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Command
+    description: Custom command to run.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Manual']
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+script_path: lateral_movement/Invoke-DCOM.ps1
+advanced:
+  custom_generate: true

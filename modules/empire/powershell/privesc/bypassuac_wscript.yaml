@@ -1,0 +1,83 @@
+name: Invoke-WScriptBypassUAC
+authors:
+  - name: ''
+    handle: '@enigma0x3'
+    link: ''
+  - name: ''
+    handle: '@harmyj0y'
+    link: ''
+  - name: Vozzie
+    handle: ''
+    link: ''
+description: |
+  A privilege escalation module that bypasses User Account Control (UAC)
+  by exploiting a vulnerability in the Windows Script Host (WSH). This
+  technique drops a custom wscript.exe executable and manifest into
+  the C:\Windows\ directory, then executes VBScript using the modified
+  wscript executable to achieve elevated privileges.
+
+  The module creates a custom manifest that modifies the execution
+  context of wscript.exe, allowing VBScript code to run with elevated
+  privileges without triggering UAC prompts. This technique exploits
+  the fact that Windows Script Host components in the Windows directory
+  are trusted by the system and can execute with higher privileges.
+
+  This approach is based on research by @enigma0x3 and @harmyj0y, and
+  leverages the UAC bypass vulnerability discovered in the Windows
+  Script Host. While effective, this technique requires dropping files
+  to disk, which may be detected by security monitoring tools.
+software: ''
+tactics: [TA0004]
+techniques: [T1548.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - http://seclist.us/uac-bypass-vulnerability-in-the-windows-script-host.html
+  - https://github.com/Vozzie/uacscript
+options:
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: privesc/Invoke-WScriptBypassUAC.ps1
+advanced:
+  custom_generate: true

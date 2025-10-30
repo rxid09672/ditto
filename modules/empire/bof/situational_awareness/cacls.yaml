@@ -1,0 +1,40 @@
+name: cacls
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Displays access control lists (ACLs) for a specified file or directory.
+  If a folder is provided, permissions are enumerated recursively to identify access
+  rights across all nested items.
+software: ''
+tactics: [TA0007]
+techniques: [T1083, T1106]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: bof
+min_language_version: ''
+comments:
+  - https://github.com/trustedsec/CS-Situational-Awareness-BOF
+options:
+  - name: Architecture
+    description: Architecture of the beacon_funcs.o to generate with (x64 or x86).
+    required: true
+    value: x64
+    strict: true
+    suggested_values:
+      - x64
+      - x86
+  - name: Filepath
+    description: Filepath to search for permissions.
+    required: true
+    value: 'C:\\windows\\system32\\cmd.exe'
+bof:
+  x86: bof/situational_awareness/cacls/cacls.x86.o
+  x64: bof/situational_awareness/cacls/cacls.x64.o
+  entry_point: ''
+  format_string: Z
+script_path: ''
+script_end: ''

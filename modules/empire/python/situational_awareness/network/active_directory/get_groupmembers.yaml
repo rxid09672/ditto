@@ -1,0 +1,76 @@
+name: Get Group Members
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  An Active Directory enumeration module that retrieves membership information
+  for specified groups within the target domain. This module performs targeted
+  reconnaissance to identify users with elevated privileges and understand
+  organizational structure through group membership analysis.
+
+  The module queries Active Directory via LDAP to extract member information
+  from specified groups, defaulting to Domain Admins if no group is specified.
+  This information is essential for understanding privilege distribution and
+  identifying high-value targets within the domain.
+
+  The enumeration results provide critical intelligence for privilege escalation
+  and lateral movement by identifying users with administrative access and
+  understanding the domain's security group structure. This module is fundamental
+  for domain reconnaissance and helps operators identify potential targets
+  for credential harvesting and privilege escalation attacks.
+software: ''
+tactics: []
+techniques:
+  - T1482
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+  - name: LDAPAddress
+    description: LDAP IP/Hostname
+    required: true
+    value: ''
+  - name: BindDN
+    description: user@penlab.local
+    required: true
+    value: ''
+  - name: Password
+    description: Password to connect to LDAP
+    required: false
+    value: ''
+  - name: GroupName
+    description: Group to check which users are a member of
+    required: false
+    value: Domain Admins
+script: |-
+  import sys, os, subprocess, re
+  BindDN = "{{ BindDN }}"
+  LDAPAddress = "{{ LDAPAddress }}"
+  password = "{{ Password }}"
+  groupname = "{{ GroupName }}"
+
+  regex = re.compile('.+@([^.]+)\..+')
+  global tld
+  match = re.match(regex, BindDN)
+  tld = match.group(1)
+  global ext
+  ext = BindDN.split('.')[1]
+
+
+  cmd = \"""ldapsearch -x -h {} -b "dc={},dc={}" -D {} -w {} "cn={}" ""\".format(LDAPAddress, tld, ext, BindDN, password, groupname)
+  output = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+  output2 = subprocess.Popen(["grep", "member:"],stdin=output.stdout, stdout=subprocess.PIPE,universal_newlines=True)
+  output.stdout.close()
+  out,err = output2.communicate()
+  print("")
+  print(out)

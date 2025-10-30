@@ -1,0 +1,59 @@
+name: Invoke-EventLogBackdoor
+authors:
+  - name: ''
+    handle: '@sixdub'
+    link: ''
+description: |
+  A persistence module that monitors Windows security event logs for a specific
+  trigger value. When the designated value is detected in an event log entry,
+  the module initiates a callback to the attacker's server.
+
+  This event-driven persistence technique leverages legitimate system logging
+  mechanisms to provide a stealthy and flexible method for re-establishing
+  access, as the backdoor is only activated in response to specific,
+  operator-defined events. The module continuously scans security logs
+  for the trigger value and maintains stealth by blending with normal
+  system monitoring activities.
+
+  The event log backdoor technique is particularly effective for maintaining
+  long-term access as it uses legitimate system processes and can be
+  triggered by various events that may occur naturally in the environment,
+  providing a reliable and difficult-to-detect persistence mechanism.
+software: ''
+tactics: [TA0004]
+techniques: [T1546.003]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - http://sixdub.net
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: OutFile
+    description: Output the backdoor to a file instead of tasking to an agent.
+    required: false
+    value: ''
+  - name: Trigger
+    description: The unique value to look for in every event packet.
+    required: true
+    value: HACKER
+  - name: Timeout
+    description: Time (in seconds) to run the backdoor. Defaults to 0 (run forever).
+    required: true
+    value: '0'
+  - name: Sleep
+    description: Time (in seconds) to sleep between checks.
+    required: true
+    value: '30'
+advanced:
+  custom_generate: true

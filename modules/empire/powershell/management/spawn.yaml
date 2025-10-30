@@ -1,0 +1,89 @@
+name: Spawn
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Spawns a new Empire agent in a fresh PowerShell process, creating a
+  separate communication channel and execution environment. This module allows
+  operators to create additional persistence points and maintain multiple concurrent
+  connections to the target system.
+
+  The spawned agent runs in a new powershell.exe
+  process, providing isolation from the parent agent and reducing the risk of detection
+  through process monitoring. This technique is useful for maintaining access when
+  the original agent may be compromised or when additional stealth is required.
+
+  The module supports various stager languages (PowerShell, C#, IronPython) and includes
+  options for obfuscation and bypass techniques to evade detection.
+software: ''
+tactics: [TA0002]
+techniques: [T1059.001]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Listener
+    description: Listener to use for the new agent communication channel.
+    required: true
+    value: ''
+  - name: Language
+    description: Language of the stager to generate for the new agent.
+    required: true
+    value: powershell
+    strict: true
+    suggested_values:
+      - powershell
+      - csharp
+      - ironpython
+      - go
+  - name: Obfuscate
+    description: Obfuscate the launcher code to evade signature-based detection.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Language
+        values: ['powershell']
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: SysWow64
+    description: Spawn a SysWow64 (32-bit) powershell.exe instead of 64-bit.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+advanced:
+  custom_generate: true

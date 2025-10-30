@@ -1,0 +1,304 @@
+name: Seatbelt
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: C# module that uses Seatbelt to perform situational awareness checks
+  on the local system. Seatbelt is a PowerShell script that can be used to enumerate
+  various system information, including user accounts, groups, privileges, and security
+  settings. It can also be used to check for various vulnerabilities and suggest
+  potential exploits for Privilege Escalation in Windows environments.
+software: ''
+tactics: [TA0007]
+techniques: [T1087.001, T1087.002, T1217, T1526, T1615, T1654, T1083, T1057, T1518.001,
+  T1082, T1007]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: Command
+    description: Seatbelt command to execute.
+    required: false
+    value: 'AntiVirus'
+    strict: false
+    suggested_values:
+      - -group=all
+      - -group=user
+      - -group=system
+      - -group=slack
+      - -group=chrome
+      - -group=remote
+      - -group=misc
+      - AMSIProviders
+      - AntiVirus
+      - AppLocker
+      - ARPTable
+      - AuditPolicies
+      - AuditPolicyRegistry
+      - AutoRuns
+      - ChromeBookmarks
+      - ChromeHistory
+      - ChromePresence
+      - CloudCredentials
+      - CredEnum
+      - CredGuard
+      - dir
+      - DNSCache
+      - DotNet
+      - DpapiMasterKeys
+      - EnvironmentPath
+      - EnvironmentVariables
+      - ExplicitLogonEvents
+      - ExplorerMRUs
+      - ExplorerRunCommands
+      - FileInfo
+      - FirefoxHistory
+      - FirefoxPresence
+      - IdleTime
+      - IEFavorites
+      - IETabs
+      - IEUrls
+      - InstalledProducts
+      - InterestingFiles
+      - InterestingProcesses
+      - InternetSettings
+      - LAPS
+      - LastShutdown
+      - LocalGPOs
+      - LocalGroups
+      - LocalUsers
+      - LogonEvents
+      - LogonSessions
+      - LSASettings
+      - MappedDrives
+      - NamedPipes
+      - NetworkProfiles
+      - NetworkShares
+      - NTLMSettings
+      - OfficeMRUs
+      - OSInfo
+      - OutlookDownloads
+      - PoweredOnEvents
+      - PowerShell
+      - PowerShellEvents
+      - Printers
+      - ProcessCreationEvents
+      - Processes
+      - ProcessOwners
+      - PSSessionSettings
+      - PuttyHostKeys
+      - PuttySessions
+      - RDCManFiles
+      - RDPSavedConnections
+      - RDPSessions
+      - RecycleBin
+      - reg
+      - RPCMappedEndpoints
+      - SCCM
+      - ScheduledTasks
+      - SearchIndex
+      - SecurityPackages
+      - Services
+      - SlackDownloads
+      - SlackPresence
+      - SlackWorkspaces
+      - Sysmon
+      - SysmonEvents
+      - TcpConnections
+      - TokenGroups
+      - TokenPrivileges
+      - UAC
+      - UdpConnections
+      - UserRightAssignments
+      - WindowsAutoLogon
+      - WindowsCredentialFiles
+      - WindowsDefender
+      - WindowsEventForwarding
+      - WindowsFirewall
+      - WindowsVault
+      - WMIEventConsumer
+      - WMIEventFilter
+      - WMIFilterBinding
+      - WSUS
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using System.Reflection;
+    using System.Text;
+    using Seatbelt;
+
+    public static class Program
+    {
+        public static Stream OutputStream { get; set; }
+
+        public static void Main(string[] args)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                TextWriter originalOutput = Console.Out;
+                TextWriter originalError = Console.Error;
+
+                StreamWriter outputStreamWriter = null;
+                if (OutputStream != null)
+                {
+                    outputStreamWriter = new StreamWriter(OutputStream);
+                    outputStreamWriter.AutoFlush = true;
+                }
+
+                try
+                {
+                    MultiTextWriter multiWriter = new MultiTextWriter(stringWriter, outputStreamWriter);
+                    Console.SetOut(multiWriter);
+                    Console.SetError(multiWriter);
+
+                    string allArgs = string.Join(" ", args);
+                    string[] splitArgs = allArgs.Split(' ');
+
+                    typeof(Seatbelt.Program).GetMethod("Main", BindingFlags.NonPublic | BindingFlags.Static)
+                                   .Invoke(null, new object[] { splitArgs });
+                }
+                catch (Exception ex)
+                {
+                    stringWriter.WriteLine($"Error: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        stringWriter.WriteLine($"Inner Exception: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+                    }
+                }
+                finally
+                {
+                    Console.SetOut(originalOutput);
+                    Console.SetError(originalError);
+
+                    if (outputStreamWriter != null)
+                    {
+                        outputStreamWriter.Flush();
+                        outputStreamWriter.Close();
+                    }
+                    Console.WriteLine(stringWriter.ToString());
+                }
+            }
+        }
+
+        private class MultiTextWriter : TextWriter
+        {
+            private readonly TextWriter _writer1;
+            private readonly TextWriter _writer2;
+
+            public MultiTextWriter(TextWriter writer1, TextWriter writer2)
+            {
+                _writer1 = writer1;
+                _writer2 = writer2;
+            }
+
+            public override Encoding Encoding
+            {
+                get
+                {
+                    return _writer1?.Encoding ?? Encoding.UTF8;
+                }
+            }
+
+            public override void Write(char value)
+            {
+                _writer1?.Write(value);
+                _writer2?.Write(value);
+            }
+
+            public override void Write(string value)
+            {
+                _writer1?.Write(value);
+                _writer2?.Write(value);
+            }
+
+            public override void Flush()
+            {
+                _writer1?.Flush();
+                _writer2?.Flush();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: Seatbelt
+      Location: Seatbelt\
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Web.Extensions.dll
+          Location: net40\System.Web.Extensions.dll
+          DotNetVersion: Net40
+        - Name: System.ServiceProcess.dll
+          Location: net40\System.ServiceProcess.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Windows.Forms.dll
+          Location: net40\System.Windows.Forms.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.XML.dll
+          Location: net35\System.XML.dll
+          DotNetVersion: Net35
+        - Name: System.Web.Extensions.dll
+          Location: net35\System.Web.Extensions.dll
+          DotNetVersion: Net35
+        - Name: System.ServiceProcess.dll
+          Location: net35\System.ServiceProcess.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.Windows.Forms.dll
+          Location: net35\System.Windows.Forms.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.XML.dll
+          Location: net40\System.XML.dll
+          DotNetVersion: Net40
+        - Name: System.Data.dll
+          Location: net35\System.Data.dll
+          DotNetVersion: Net35
+        - Name: System.Data.dll
+          Location: net40\System.Data.dll
+          DotNetVersion: Net40
+        - Name: System.Data.DataSetExtensions.dll
+          Location: net35\System.Data.DataSetExtensions.dll
+          DotNetVersion: Net35
+        - Name: System.Data.DataSetExtensions.dll
+          Location: net40\System.Data.DataSetExtensions.dll
+          DotNetVersion: Net40
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

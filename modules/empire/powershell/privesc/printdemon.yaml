@@ -1,0 +1,42 @@
+name: Invoke-PrintDemon
+authors:
+  - name: Jake Krasnov
+    handle: '@hubbl3'
+    link: https://twitter.com/_hubbl3
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Exploits CVE-2020-1048 (PrintDemon) vulnerability in Windows Print Spooler to
+  achieve privilege escalation and persistence. The vulnerability allows unprivileged
+  users to gain SYSTEM-level privileges by exploiting the print spooler service.
+  Creates a malicious DLL (ualapi.dll) that gets loaded into System32 and establishes
+  persistence through registry modifications that execute code as SYSTEM on system
+  restart. The technique leverages Windows print spooler architecture to achieve
+  both privilege escalation and persistent access to the target system.
+software: ''
+tactics: [TA0004]
+techniques: [T1068]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '5'
+comments:
+  - https://github.com/BC-SECURITY/Invoke-PrintDemon
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+  - name: LauncherCode
+    description: Base64 launcher code
+    required: true
+    value: ''
+  - name: PrinterName
+    description: Optional name for the registered printer
+    required: false
+    value: ''
+script_path: privesc/Invoke-PrintDemon.ps1
+script_end: Invoke-PrintDemon {{ PARAMS }}

@@ -1,0 +1,40 @@
+name: enum_filter_driver
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Enumerates filter drivers registered on the local or remote system.
+  Useful for identifying security, storage, or file system monitoring components
+  that may impact operations or indicate defensive tooling.
+software: ''
+tactics: [TA0007]
+techniques: [T1083, T1106]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: bof
+min_language_version: ''
+comments:
+  - https://github.com/trustedsec/CS-Situational-Awareness-BOF
+options:
+  - name: Architecture
+    description: Architecture of the beacon_funcs.o to generate with (x64 or x86).
+    required: true
+    value: x64
+    strict: true
+    suggested_values:
+      - x64
+      - x86
+  - name: Computer
+    description: Specifies the remote system to connect to.
+    required: true
+    value: '.'
+bof:
+  x86: bof/situational_awareness/enum_filter_driver/enum_filter_driver.x86.o
+  x64: bof/situational_awareness/enum_filter_driver/enum_filter_driver.x64.o
+  entry_point: ''
+  format_string: z
+script_path: ''
+script_end: ''

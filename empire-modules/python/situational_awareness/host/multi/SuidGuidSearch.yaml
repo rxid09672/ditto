@@ -1,0 +1,38 @@
+name: Search for SUID/GUID files
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  Searches for files with SUID (Set User ID) or GUID (Set Group ID)
+  permissions set, which can be exploited for privilege escalation.
+  Uses the find command to recursively search the filesystem for
+  files with elevated permissions that execute with the privileges
+  of the file owner or group. Displays detailed file information
+  including permissions, owner, group, and file path.
+software: ''
+tactics: []
+techniques:
+  - T1426
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to run the module on.
+    required: true
+    value: ''
+  - name: Path
+    description: 'Path to start the search from. Default is / '
+    required: true
+    value: /
+script: |-
+  import os
+  import subprocess
+  cmd = "find {{ Path }} -type f \( -perm -g=s -o -perm -u=s \) \-exec ls -lg \{\} \;"
+  print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())

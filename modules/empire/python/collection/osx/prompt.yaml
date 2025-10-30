@@ -1,0 +1,58 @@
+name: Prompt
+authors:
+  - name: ''
+    handle: '@FuzzyNop'
+    link: ''
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Launches applications with credential prompts using AppleScript
+  to trigger authentication dialogs. Leverages osascript to
+  execute AppleScript commands that launch system applications
+  requiring user authentication. Supports both regular and
+  sandbox-safe application launching modes. Can list available
+  applications suitable for credential prompting. Useful for
+  social engineering attacks, credential harvesting, and
+  triggering user authentication prompts to capture passwords
+  and other sensitive credentials.
+software: ''
+tactics: []
+techniques:
+  - T1141
+  - T1514
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '2.6'
+comments:
+  - https://github.com/fuzzynop/FiveOnceInYourLife
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: AppName
+    description: The name of the application to launch.
+    required: true
+    value: App Store
+  - name: ListApps
+    description: List applications suitable for launching.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: SandboxMode
+    description: Launch a sandbox safe prompt
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+advanced:
+  custom_generate: true

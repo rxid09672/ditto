@@ -1,0 +1,36 @@
+name: LinuxPrivChecker
+authors:
+  - name: ''
+    handle: '@sleventyeleven'
+    link: ''
+  - name: ''
+    handle: '@Cx01N'
+    link: ''
+description: |
+  Executes a comprehensive Linux privilege escalation checker written
+  in pure Python to enumerate system information and identify common
+  privilege escalation vectors. Scans for kernel exploits, misconfigured
+  services, weak file permissions, environment variables, and other
+  security misconfigurations that could lead to privilege escalation.
+  Provides detailed output of potential attack paths and system
+  vulnerabilities. Useful for post-exploitation reconnaissance,
+  security assessments, and identifying privilege escalation
+  opportunities on Linux systems.
+software: ''
+tactics: []
+techniques:
+  - T1166
+background: true
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '3'
+comments:
+  - 'https://github.com/sleventyeleven/linuxprivchecker'
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+script_path: 'python/privesc/linuxprivchecker.py'

@@ -1,0 +1,53 @@
+name: DesktopFile
+authors:
+  - name: ''
+    handle: '@jarrodcoulter'
+    link: ''
+description: |
+  Creates and installs a desktop entry file in the ~/.config/autostart
+  directory to establish persistence on Linux systems with graphical
+  user interfaces. The desktop file follows the freedesktop.org
+  specification and automatically launches the Empire agent when
+  the user logs into the desktop environment. Creates a properly
+  formatted .desktop file with the specified name and configures
+  it to execute the Empire launcher script. Includes functionality
+  to remove the persistence mechanism for cleanup. Useful for
+  establishing persistence on Linux desktop systems and maintaining
+  access across user sessions and system reboots.
+software: ''
+tactics: []
+techniques:
+  - T1165
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '3'
+comments:
+  - https://digitasecurity.com/blog/2018/01/23/crossrat/, https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s07.html,
+    https://neverbenever.wordpress.com/2015/02/11/how-to-autostart-a-program-in-raspberry-pi-or-linux/
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Remove
+    description: Remove Persistence based on FileName.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: FileName
+    description: File name without extension that you would like created in ~/.config/autostart/
+      folder.
+    required: false
+    value: sec_start
+advanced:
+  custom_generate: true

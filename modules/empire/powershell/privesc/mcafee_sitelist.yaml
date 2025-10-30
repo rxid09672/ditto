@@ -1,0 +1,45 @@
+name: Get-SiteListPassword
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+  - name: ''
+    handle: '@funoverip'
+    link: ''
+description: |
+  Extracts plaintext passwords from McAfee SiteList.xml configuration files to
+  obtain credentials for further privilege escalation. McAfee SiteList.xml files
+  contain encrypted passwords that can be decrypted using known algorithms and
+  keys. The module searches for these files and decrypts stored credentials,
+  which often include administrative passwords or service account credentials.
+software: ''
+tactics: [TA0006]
+techniques: [T1552.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/funoverip/mcafee-sitelist-pwd-decryption/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: privesc/Get-SiteListPassword.ps1
+script_end: Get-SiteListPassword {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-SiteListPassword completed'

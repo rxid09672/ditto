@@ -1,0 +1,79 @@
+name: Timestomp
+authors:
+  - name: ''
+    handle: '@obscuresec'
+    link: ''
+description: |
+  Executes time-stomp functionality by modifying file timestamps (MAC
+  attributes) to manipulate forensic artifacts and evade timeline analysis. This
+  module allows operators to alter the Modified, Accessed, and Created timestamps
+  of files to blend malicious activities with legitimate system operations.
+
+  Time-stomping
+  is a critical anti-forensics technique that helps operators avoid detection during
+  post-incident analysis. By setting file timestamps to match legitimate system
+  files or historical dates, malicious files can appear to be part of normal system
+  operations or pre-date the security incident.
+
+  The module can clone timestamps
+  from existing files or set custom timestamps, providing flexibility for different
+  operational scenarios and forensic evasion requirements.
+software: ''
+tactics: [TA0005]
+techniques: [T1070.006]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - http://obscuresecurity.blogspot.com/2014/05/touch.html
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: FilePath
+    description: Path to the file whose timestamps will be modified.
+    required: true
+    value: ''
+  - name: OldFile
+    description: Path to an existing file to clone MAC timestamps from.
+    required: false
+    value: ''
+  - name: Modified
+    description: 'Set modified time to specific date/time (format: 01/03/2006 12:12
+      pm).'
+    required: false
+    value: ''
+  - name: Accessed
+    description: 'Set accessed time to specific date/time (format: 01/03/2006 12:12
+      pm).'
+    required: false
+    value: ''
+  - name: Created
+    description: 'Set created time to specific date/time (format: 01/03/2006 12:12
+      pm).'
+    required: false
+    value: ''
+  - name: All
+    description: 'Set all MAC attributes to the same value (format: 01/03/2006 12:12
+      pm).'
+    required: false
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: management/Set-MacAttribute.ps1
+script_end: Set-MacAttribute {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Timestomp completed'

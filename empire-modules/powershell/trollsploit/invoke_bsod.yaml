@@ -1,0 +1,34 @@
+name: Invoke-BSOD
+authors:
+  - name: 'Barrett Adams'
+    handle: '@peewpw'
+    link: 'https://x.com/peewpw'
+description: Forces the target Windows system to immediately crash and display a
+  Blue Screen of Death (BSOD), simulating a critical system failure as a prank or
+  disruptive action. This module leverages PowerShell techniques to trigger a system
+  crash without requiring administrative privileges, making it effective even in
+  restricted environments. In addition to inducing a BSOD, the module enumerates
+  the system's crash dump settings to provide insight into post-crash forensic capabilities.
+  This tool is intended for psychological operations, red team demonstrations, or
+  humorous scenarios where a dramatic system interruption is desired. Operators should
+  be aware that forcibly crashing a system can result in data loss, user disruption,
+  and potential forensic artifacts. Use with caution and only in controlled environments
+  or with explicit authorization.
+software: ''
+tactics: [TA0040]
+techniques: [T1499]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/peewpw/Invoke-BSOD
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+script_path: fun/Invoke-BSOD.ps1
+script_end: Invoke-BSOD

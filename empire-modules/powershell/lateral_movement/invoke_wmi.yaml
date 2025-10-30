@@ -1,0 +1,128 @@
+name: Invoke-WMI
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Executes PowerShell commands or Empire stagers on remote systems using
+  Windows Management Instrumentation (WMI). WMI offers a stealthier alternative
+  to other lateral movement techniques like PsExec, as it doesn't require creating
+  a service on the target machine.
+
+  This module leverages the WMI Win32_Process
+  class to create processes remotely and supports both plaintext credentials and
+  pass-the-hash techniques for authentication. WMI execution typically only requires
+  administrative privileges on the target and operates over standard DCOM/RPC ports
+  (typically 135/TCP), making it effective even in environments with limited outbound
+  connectivity.
+
+  While WMI execution is more subtle than service-based techniques,
+  modern EDR solutions often monitor WMI activity for process creation events.
+  This technique leaves artifacts in WMI event logs and process creation logs that
+  can be detected by security monitoring systems specifically watching for this
+  attack vector.
+software: ''
+tactics: [TA0002, TA0008]
+techniques: [T1047, T1021.006]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: Payload
+    description: Manually build command or use Empire.
+    required: true
+    value: 'Empire'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - Empire
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: ComputerName
+    description: Host[s] to execute the stager on, comma separated.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Command
+    description: Custom command to run.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Manual']
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserName
+    description: '[domain\]username to use to execute command.'
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Password
+    description: Password to use to execute command.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+advanced:
+  custom_generate: true

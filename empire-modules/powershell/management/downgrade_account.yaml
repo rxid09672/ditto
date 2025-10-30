@@ -1,0 +1,71 @@
+name: Invoke-DowngradeAccount
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A module that downgrades domain account security by enabling reversible
+  encryption and forcing a password reset on the next user login. This
+  technique weakens the security posture of targeted accounts to facilitate
+  credential harvesting and privilege escalation.
+
+  The module modifies domain account properties to enable reversible
+  encryption, which stores passwords in a less secure format that can
+  be more easily extracted by credential harvesting tools. Additionally,
+  it forces the account to require a password change on next login,
+  potentially capturing the new password through various means.
+
+  This technique is particularly effective for compromising high-value
+  accounts as it reduces their security protections and creates
+  opportunities for credential harvesting. The module includes repair
+  functionality to restore account security settings when needed.
+software: ''
+tactics: [TA0003]
+techniques: [T1098]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: SamAccountName
+    description: The SamAccountName of the domain object you're manipulating.
+    required: false
+    value: ''
+  - name: Name
+    description: The name of the domain object you're manipulating.
+    required: false
+    value: ''
+  - name: Domain
+    description: The domain to query for objects, defaults to the current domain.
+    required: false
+    value: ''
+  - name: Repair
+    description: Unset the reversible encryption flag and force password reset flag.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Invoke-DowngradeAccount {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ +
+  "`n"};"`n Invoke-DowngradeAccount completed!"

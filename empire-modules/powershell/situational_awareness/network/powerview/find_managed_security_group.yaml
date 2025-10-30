@@ -1,0 +1,90 @@
+name: Get-DomainManagedSecurityGroup
+authors:
+  - name: ''
+    handle: '@ukstufus'
+    link: ''
+description: Identifies security groups that have designated managers with the ability
+  to add or remove members, revealing delegation relationships and potential privilege
+  escalation opportunities through group management capabilities. This module leverages
+  PowerView's Get-DomainManagedSecurityGroup function to analyze security group configurations
+  and identify groups that have been configured with manager attributes, along with
+  determining whether those managers have the necessary permissions to modify group
+  membership. The reconnaissance capability is essential for understanding delegation
+  patterns, identifying potential privilege escalation opportunities through group
+  management, and mapping administrative control relationships within the domain.
+  By analyzing managed security groups, operators can identify users with group management
+  capabilities, understand delegation relationships, and discover potential attack
+  vectors that leverage group management privileges. The module supports filtering
+  by domain and custom search bases to focus reconnaissance efforts on specific organizational
+  areas. This information is crucial for privilege escalation planning, understanding
+  delegation security implications, and identifying potential lateral movement opportunities
+  through group management capabilities that may provide access to sensitive resources
+  or administrative functions.
+software: S0194
+tactics: [TA0007]
+techniques: [T1069, T1018, T1615]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/https://github.com/PowerShellEmpire/Empire/pull/119
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Domain
+    description: The domain to use for the query, defaults to the current domain.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainManagedSecurityGroup {{ PARAMS }} | {{ OUTPUT_FUNCTION }} |
+  %{$_ + "`n"}; 'Get-DomainManagedSecurityGroup completed'

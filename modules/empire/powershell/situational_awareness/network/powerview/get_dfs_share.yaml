@@ -1,0 +1,88 @@
+name: Get-DomainDFSshare
+authors:
+  - name: ''
+    handle: '@meatballs__'
+    link: ''
+description: Enumerates Distributed File System (DFS) shares within an Active Directory
+  domain to identify fault-tolerant file sharing infrastructure and potential data
+  repositories. This module leverages PowerView's Get-DomainDFSshare function to
+  query the domain's DFS configuration and retrieve comprehensive information about
+  all DFS namespaces, including share names, target paths, referral information,
+  and fault-tolerant configurations. The reconnaissance capability is essential for
+  understanding the domain's file sharing architecture, identifying centralized data
+  repositories, and mapping the distribution of file resources across multiple servers.
+  By analyzing DFS shares, operators can identify potential data exfiltration targets,
+  understand file sharing patterns, and discover opportunities for lateral movement
+  through file access. The module supports filtering by domain and custom search
+  bases to focus reconnaissance efforts on specific organizational areas. This information
+  is crucial for data collection operations, understanding the domain's file sharing
+  landscape, and identifying potential data exfiltration vectors through centralized
+  file repositories.
+software: S0194
+tactics: [TA0007]
+techniques: [T1069, T1615, T1135]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Domain
+    description: The domain whose trusts to enumerate, defaults to the current domain.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainDFSshare {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-DomainDFSshare completed'

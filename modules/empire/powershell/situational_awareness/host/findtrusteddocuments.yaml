@@ -1,0 +1,44 @@
+name: Find-TrustedDocuments
+authors:
+  - name: ''
+    handle: '@jamcut'
+    link: ''
+description: |
+  Searches for trusted documents on the target system that can be leveraged for code
+  execution or persistence. Identifies files marked as trusted by Windows, including
+  documents from trusted publishers, files in trusted locations, and previously opened
+  documents that bypass security warnings. These trusted documents can be used to
+  execute malicious code without triggering security alerts or requiring user interaction
+  for approval.
+software: ''
+tactics: [TA0007]
+techniques: [T1012, T1083]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - Original .ps1 file
+  - https://github.com/jamcut/one-offs/blob/master/Find-TrustedDocuments.ps1
+options:
+  - name: Agent
+    description: Agent to enumerate trusted documents from.
+    required: true
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/host/Find-TrustedDocuments.ps1
+script_end: Find-TrustedDocuments | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Find-TrustedDocuments
+  completed'

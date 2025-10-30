@@ -1,0 +1,44 @@
+name: Invoke-Shellcode
+authors:
+  - name: Matt Graeber
+    handle: '@mattifestation'
+    link: https://twitter.com/mattifestation
+description: |
+  PowerShell module that uses PowerSploit's Invoke-Shellcode to inject shellcode into the
+  process ID of your choosing or within the context of the running PowerShell process.
+  Uses the PowerSploit library to inject shellcode into a specified process, providing a
+  flexible and powerful way to execute custom scripts or payloads within the PowerShell
+  environment.
+software: S0194
+tactics: [TA0005]
+techniques: [T1620]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - http://www.exploit-monday.com
+  - https://github.com/mattifestation/PowerSploit/blob/master/CodeExecution/Invoke-Shellcode.ps1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: ProcessID
+    description: Process ID of the process you want to inject shellcode into.
+    required: false
+    value: ''
+  - name: Shellcode
+    description: Custom shellcode to inject, 0xaa,0xab,... format.
+    required: false
+    value: ''
+  - name: File
+    description: Binary filename in '/empire/server/downloads' to load and execute.
+    required: false
+    value: ''
+    type: file
+script_path: code_execution/Invoke-Shellcode.ps1
+advanced:
+  custom_generate: true

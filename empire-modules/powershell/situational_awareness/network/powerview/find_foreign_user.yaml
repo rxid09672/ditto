@@ -1,0 +1,103 @@
+name: Get-DomainForeignUser
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Identifies users who are members of groups outside their principal domain,
+  revealing cross-domain access relationships and potential privilege escalation
+  opportunities across domain boundaries. This module leverages PowerView's Get-DomainForeignUser
+  function to analyze group memberships and identify users who have been granted
+  access to resources in domains other than their home domain. The reconnaissance
+  capability is essential for understanding cross-domain access patterns, identifying
+  potential lateral movement opportunities across domain boundaries, and mapping
+  the broader Active Directory trust relationships. By analyzing foreign user memberships,
+  operators can identify users with cross-domain privileges, understand trust relationship
+  implications, and discover potential attack vectors that leverage cross-domain
+  access. The module supports filtering by domain and custom LDAP queries to focus
+  reconnaissance efforts on specific cross-domain relationships. This information
+  is crucial for cross-domain reconnaissance, understanding trust relationship security
+  implications, and identifying potential privilege escalation opportunities through
+  cross-domain group memberships.
+software: S0194
+tactics: [TA0007]
+techniques: [T1482, T1069]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Domain
+    description: The domain to use for the query, defaults to the current domain.
+    required: false
+    value: ''
+  - name: LDAPFilter
+    description: Specifies an LDAP filter query string that is used to filter active
+      directory objects.
+    required: false
+    value: ''
+  - name: Properties
+    description: Specifies the properties of the output object to retrieve from the
+      server.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: SecurityMasks
+    description: Specifies an option for examining security information of a directory
+      object. One of "Dacl", "Group", "None", "Owner", "Sacl".
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainForeignUser {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-DomainForeignUser completed'

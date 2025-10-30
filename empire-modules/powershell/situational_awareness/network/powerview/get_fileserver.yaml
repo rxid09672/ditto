@@ -1,0 +1,93 @@
+name: Get-DomainFileServer
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: Discovers file servers within an Active Directory domain by analyzing
+  user account attributes including home directories, script paths, and profile paths
+  to identify centralized file storage infrastructure. This module leverages PowerView's
+  Get-DomainFileServer function to query user account attributes and extract file
+  server information from various path fields, providing comprehensive visibility
+  into the domain's file storage architecture. The reconnaissance capability is essential
+  for understanding the domain's file sharing infrastructure, identifying centralized
+  data repositories, and mapping the distribution of user data across file servers.
+  By analyzing file server information, operators can identify potential data exfiltration
+  targets, understand user data storage patterns, and discover opportunities for
+  lateral movement through file access. The module supports filtering by domain and
+  custom LDAP queries to focus reconnaissance efforts on specific organizational
+  areas. This information is crucial for data collection operations, understanding
+  the domain's file storage landscape, and identifying potential data exfiltration
+  vectors through centralized file repositories that may contain sensitive user data.
+software: S0194
+tactics: [TA0007]
+techniques: [T1135]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Domain
+    description: The domain whose trusts to enumerate, defaults to the current domain.
+    required: false
+    value: ''
+  - name: LDAPFilter
+    description: Specifies an LDAP query string that is used to filter Active Directory
+      objects.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: Server
+    description: Specifies an active directory server (domain controller) to bind
+      to
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainFileServer {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-DomainFileServer completed'

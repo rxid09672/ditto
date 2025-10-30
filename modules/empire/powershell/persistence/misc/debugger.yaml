@@ -1,0 +1,93 @@
+name: Invoke-Debugger
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A persistence module that establishes system-level persistence by hijacking
+  the Windows debugger registry key to execute an Empire stager whenever
+  a specified application is launched. This approach leverages Windows
+  debugging infrastructure to create a stealthy persistence mechanism
+  that triggers on application execution.
+
+  The module modifies the AeDebug registry key to specify a custom debugger
+  that will be invoked whenever the target application crashes or is
+  launched with debugging enabled. This technique is particularly effective
+  as it uses legitimate Windows debugging functionality and can be
+  configured to target commonly used applications.
+
+  Debugger hijacking persistence provides excellent stealth as it leverages
+  native Windows functionality and operates under the guise of legitimate
+  debugging activities. However, it requires administrative privileges
+  and creates registry artifacts that can be detected by advanced
+  security monitoring tools.
+software: ''
+tactics: [TA0004]
+techniques: [T1112, T1546.008]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - http://www.labofapenetrationtester.com/2014/11/powershell-for-client-side-attacks.html
+  - https://github.com/samratashok/nishang
+  - http://blog.trendmicro.com/trendlabs-security-intelligence/black-magic-windows-powershell-used-again-in-new-attack/
+options:
+  - name: Listener
+    description: Listener to use for the stager.
+    required: false
+    value: ''
+  - name: Obfuscate
+    description: Obfuscate the launcher PowerShell code to evade signature-based
+      detection.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: TargetBinary
+    description: Target binary to set the debugger for (sethc.exe, Utilman.exe, osk.exe,
+      Narrator.exe, or Magnify.exe)
+    required: true
+    strict: true
+    value: sethc.exe
+    suggested_values:
+      - sethc.exe
+      - Utilman.exe
+      - osk.exe
+      - Narrator.exe
+      - Magnify.exe
+  - name: RegPath
+    description: Registry location to store the script code. Last element is the
+      key name.
+    required: false
+    value: HKLM:Software\Microsoft\Network\debug
+  - name: Cleanup
+    description: Disable the Utilman.exe debugger.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: TriggerBinary
+    description: Binary to set for the debugger.
+    required: false
+    value: C:\Windows\System32\cmd.exe
+advanced:
+  custom_generate: true

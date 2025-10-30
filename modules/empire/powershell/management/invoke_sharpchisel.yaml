@@ -1,0 +1,64 @@
+name: Invoke-SharpChiselClient
+authors:
+  - name: ''
+    handle: '@jpillora'
+    link: ''
+  - name: ''
+    handle: '@shantanukhande'
+    link: ''
+description: |
+  Establishes a reverse tunneling capability using SharpChisel, a C#
+  implementation of the Chisel tunneling tool. This module creates encrypted tunnels
+  between the compromised system and attacker infrastructure, enabling access to
+  otherwise unreachable network segments or services.
+
+  The tunnel operates over
+  HTTP/HTTPS, allowing traffic to blend with legitimate web traffic and bypass
+  many firewall restrictions. SharpChisel supports various tunnel types including
+  SOCKS proxies, remote port forwarding, and local port forwarding to adapt to
+  different network pivoting requirements.
+
+  This technique is particularly valuable
+  for accessing internal services from external positions, bypassing network segmentation,
+  or establishing persistent access channels that don't rely on the Empire agent
+  itself. The module executes SharpChisel in memory using .NET reflection, avoiding
+  disk writes that might trigger file-based detections.
+
+  The encrypted nature
+  of the tunnel helps evade deep packet inspection, though sustained connections
+  to external servers may be flagged by network monitoring tools tracking long-lived
+  sessions.
+software: ''
+tactics: [TA0011]
+techniques: [T1090]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - 'This is the Chisel client loaded with reflection. A chisel server needs to be
+    started before running this module. Only Chisel server v1.7.2 was tested with
+    this module. Chisel server should be started like so: "./chisel server --reverse"'
+  - https://github.com/jpillora/chisel
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Server
+    description: 'URL of the Chisel server. Format: http://<IP>:8080'
+    required: true
+    value: ''
+  - name: Remote
+    description: Remote(s) for the Chisel server.
+    required: true
+    value: R:socks
+  - name: Fingerprint
+    description: Fingerprint string to perform host-key validation against the server's
+      public key
+    required: false
+    value: ''
+script_path: management/Invoke-SharpChiselClient.ps1
+script_end: Invoke-SharpChiselClient {{ PARAMS }}

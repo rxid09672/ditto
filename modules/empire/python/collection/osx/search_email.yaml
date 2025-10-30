@@ -1,0 +1,38 @@
+name: SearchEmail
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Searches and extracts email messages from the macOS Mail application
+  by scanning .emlx files in the user's Mail directory. Supports
+  optional keyword filtering to find specific messages containing
+  search terms. Scans the Mail application's message storage format
+  to locate and extract email content, headers, and metadata.
+  Provides email reconnaissance capabilities for intelligence
+  gathering and communication analysis. Useful for collecting
+  sensitive email communications, contact information, and
+  understanding user communication patterns.
+software: ''
+tactics: []
+techniques:
+  - T1114
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - https://davidkoepi.wordpress.com/2013/07/06/macforensics5/
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: SearchTerm
+    description: Term to grep for in email messages.
+    required: false
+    value: ''
+advanced:
+  custom_generate: true

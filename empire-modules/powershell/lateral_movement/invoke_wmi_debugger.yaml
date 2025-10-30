@@ -1,0 +1,126 @@
+name: Invoke-WMIDebugger
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Achieves persistence and code execution by manipulating the Windows
+  Image File Execution Options (IFEO) debugger registry key via WMI. This technique
+  sets a debugger for a specified application that will execute the attacker's
+  payload whenever the targeted application is launched.
+
+  The module uses WMI
+  to remotely modify the registry on the target system, setting up the payload
+  as a "debugger" for a legitimate application. When a user runs the targeted
+  application, Windows will instead execute the payload first.
+
+  This provides a
+  stealthy persistence mechanism that doesn't require scheduled tasks, services,
+  or startup items. It's particularly effective for maintaining access when the
+  targeted application is commonly used or automatically started on the system.
+
+  The
+  technique can be detected through registry monitoring for changes to IFEO keys
+  or through process ancestry analysis showing unexpected parent-child relationships
+  when the targeted application is launched.
+software: ''
+tactics: [TA0002, TA0008, TA0005]
+techniques: [T1047, T1021.006]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: ComputerName
+    description: Host[s] to execute the stager on, comma separated.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserName
+    description: '[domain\]username to use to execute command.'
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Password
+    description: Password to use to execute command.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: TargetBinary
+    description: Target binary to set the debugger for (sethc.exe, Utilman.exe, osk.exe,
+      Narrator.exe, or Magnify.exe)
+    required: true
+    value: sethc.exe
+    strict: true
+    suggested_values:
+      - sethc.exe
+      - Utilman.exe
+      - osk.exe
+      - Narrator.exe
+      - Magnify.exe
+  - name: RegPath
+    description: Registry location to store the script code. Last element is the
+      key name.
+    required: false
+    value: HKLM:Software\Microsoft\Network\debug
+  - name: Binary
+    description: Binary to set for the debugger.
+    required: false
+    value: C:\Windows\System32\cmd.exe
+  - name: Cleanup
+    description: Disable the debugger for the specified TargetBinary.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+advanced:
+  custom_generate: true

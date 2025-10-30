@@ -1,0 +1,87 @@
+name: Invoke-RunAs
+authors:
+  - name: rvrsh3ll (@424f424f)
+    handle: ''
+    link: ''
+description: |
+  Executes commands or programs with alternate user credentials on the
+  target system using the Windows RunAs functionality. This module allows operators
+  to run processes under different user contexts without requiring a full login
+  session, useful for accessing resources restricted to specific users.
+
+  Unlike
+  traditional privilege escalation, RunAs requires knowledge of valid credentials
+  but can provide access to network resources, applications, or data that may be
+  inaccessible to the current user context. The module supports executing both
+  simple commands and full applications with command-line arguments.
+
+  The module
+  creates visible process creation events that include the alternate user context,
+  potentially alerting security monitoring systems to credential usage patterns.
+  The spawned process also operates with standard Windows authentication tokens
+  rather than trying to hide its identity.
+software: ''
+tactics: [TA0004, TA0005]
+techniques: [T1134.002]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/rvrsh3ll/Misc-Powershell-Scripts/blob/master/RunAs.ps1
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: Domain
+    description: Optional domain.
+    required: false
+    value: ''
+  - name: UserName
+    description: Username to run the command as.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Password
+    description: Password for the specified username.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Cmd
+    description: Command to run.
+    required: true
+    value: notepad.exe
+  - name: Arguments
+    description: Optional arguments for the supplied binary.
+    required: false
+    value: ''
+  - name: ShowWindow
+    description: Show the window for the created process instead of hiding it.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script_path: management/Invoke-RunAs.ps1
+advanced:
+  custom_generate: true

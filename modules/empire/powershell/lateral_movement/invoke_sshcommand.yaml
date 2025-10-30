@@ -1,0 +1,73 @@
+name: Invoke-SSHCommand
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  Executes commands on remote Linux/Unix systems over SSH using provided
+  credentials or key-based authentication. This module allows operators to run
+  arbitrary commands or Empire stagers on SSH-enabled hosts, making it especially
+  useful for lateral movement in mixed Windows/Linux environments.
+
+  The module
+  supports both password-based and key-based authentication methods and can execute
+  either single commands or transfer and execute more complex scripts. It operates
+  over standard SSH ports (typically 22/TCP) and handles command output retrieval.
+
+  SSH
+  command execution is generally less suspicious than many Windows lateral movement
+  techniques as it uses legitimate administrative channels. However, SSH access
+  may be logged by security monitoring systems, and failed authentication attempts
+  can trigger lockouts or alerts.
+software: ''
+tactics: [TA0008]
+techniques: [T1021.004]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: IP
+    description: Address of the target server.
+    required: true
+    value: ''
+  - name: Username
+    description: The username to login with.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Password
+    description: The password to login with.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Command
+    description: The command to run on the remote host.
+    required: true
+    value: ''
+script_path: lateral_movement/Invoke-SSHCommand.ps1
+advanced:
+  custom_generate: true

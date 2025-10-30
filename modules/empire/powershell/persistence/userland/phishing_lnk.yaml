@@ -1,0 +1,61 @@
+name: Invoke-PhishingLnk
+authors:
+  - name: 0xFFaraday
+    handle: '0xFFaraday'
+    link: ''
+description: |
+  A persistence module that creates a new shortcut (.LNK) file on a targeted
+  user's desktop, backdoored to launch both a legitimate application and
+  an Empire stager. This approach enables the operator to maintain access
+  by enticing the user to execute the shortcut, which appears useful or familiar.
+
+  The module allows customization of the shortcut's name, icon, and target
+  application, increasing the likelihood of user interaction and successful
+  agent deployment. By creating a new shortcut rather than modifying existing
+  ones, the module provides a clean persistence mechanism that doesn't
+  interfere with normal user workflows.
+
+  This phishing technique is particularly effective for maintaining access
+  as it leverages social engineering principles and user behavior patterns,
+  providing a reliable method for re-establishing connections through
+  user-initiated actions.
+tactics: [TA0004]
+techniques: [T1204.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://www.hull1.com/scriptit/2020/08/15/customize-shortcut-icon.html
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: LNKName
+    description: The name you want to make the LNK named. For example, Backup
+    required: true
+    value: ''
+  - name: Application
+    description: The program path that you want the user to be "expecting". For Example,
+      C:\windows\System32\calc.exe
+    required: true
+    value: ''
+  - name: TargetedUser
+    description: User that you want to put the malicious LNK in their Desktop. For
+      example, IEUser
+    required: true
+    value: ''
+  - name: Icon
+    description: The icon that is used for the newly created LNK. Defaults to 27
+      which is the logout icon, 32 is a full recycling bin, and 4 is an folder. More
+      info can be found here -> https://www.hull1.com/scriptit/2020/08/15/customize-shortcut-icon.html
+    required: true
+    value: ''
+  - name: StagerCommand
+    description: Copy the command for your powershell / ironpython stager
+    required: true
+    value: ''
+script_path: persistence/Invoke-PhishingLNK.ps1

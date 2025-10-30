@@ -1,0 +1,96 @@
+name: Invoke-ReflectivePEInjection
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+  - name: ''
+    handle: '@sixdub'
+    link: ''
+  - name: leechristensen (@tifkin_)
+    handle: ''
+    link: ''
+  - name: james fitts
+    handle: ''
+    link: ''
+description: |
+  Executes arbitrary DLLs in memory using reflective injection techniques
+  without touching the disk or using the standard Windows loader. This module allows
+  operators to load and execute compiled tools directly into process memory, bypassing
+  file-based detection mechanisms.
+
+  Reflective injection works by implementing
+  a custom PE loader that handles memory allocation, imports resolution, and relocation
+  fixing, enabling a DLL to load itself into memory from a raw byte array rather
+  than from disk. This allows sophisticated post-exploitation tools to run without
+  creating filesystem artifacts.
+
+  The module supports injecting into the current
+  process or a remote process, allowing operators to hide malicious activity under
+  legitimate processes. It can execute both custom and standard DLLs with export
+  functions.
+software: ''
+tactics: [TA0004, TA0005]
+techniques: [T1055.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - http://sixdub.net
+options:
+  - name: UploadPath
+    description: Path to drop dll (C:\Users\Administrator\Desktop).
+    required: false
+    value: ''
+  - name: ProcName
+    description: Process name to inject into. (I.E calc, chrome, powershell)
+    required: false
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: Arch
+    description: Architecture of the .dll to generate (x64 or x86).
+    required: false
+    value: x64
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: management/Invoke-ReflectivePEInjection.ps1
+advanced:
+  custom_generate: true

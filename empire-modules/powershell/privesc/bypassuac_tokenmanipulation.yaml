@@ -1,0 +1,66 @@
+name: Invoke-BypassUACTokenManipulation
+authors:
+  - name: ''
+    handle: '@enigma0x3'
+    link: ''
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  A privilege escalation module that bypasses User Account Control (UAC)
+  using Windows token manipulation techniques. This module is based on
+  research presented by Matt Nelson (@enigma0x3) at Derbycon 2017 and
+  implements token duplication to achieve elevated privileges.
+
+  The technique exploits Windows security token handling by duplicating
+  existing elevated tokens from running processes and using them to
+  create new processes with administrative privileges. This approach
+  bypasses UAC by leveraging tokens that already have the necessary
+  privileges, rather than attempting to elevate through traditional
+  means.
+
+  This method is particularly effective because it doesn't require
+  registry modifications or file system changes, making it completely
+  fileless and difficult to detect. The technique works by identifying
+  processes with elevated tokens and duplicating their security context
+  to execute arbitrary code with administrative privileges.
+software: ''
+tactics: [TA0004]
+techniques: [T1548.002]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://raw.githubusercontent.com/enigma0x3/Misc-PowerShell-Stuff/master/Invoke-TokenDuplication.ps1
+options:
+  - name: Agent
+    description: Agent to elevate from.
+    required: true
+    value: ''
+  - name: Stager
+    description: Stager file that you have hosted.
+    required: true
+    value: update.php
+  - name: Host
+    description: Host or IP where stager is served.
+    required: true
+    value: ''
+  - name: Port
+    description: Port to connect to where stager is served
+    required: true
+    value: ''
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: privesc/Invoke-BypassUACTokenManipulation.ps1
+advanced:
+  custom_generate: true

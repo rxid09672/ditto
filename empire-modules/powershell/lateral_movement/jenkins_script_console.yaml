@@ -1,0 +1,89 @@
+name: Exploit-Jenkins
+authors:
+  - name: ''
+    handle: '@luxcupitor'
+    link: ''
+description: |
+  Exploits the Jenkins Script Console feature to execute arbitrary Groovy/Java
+  code on Jenkins servers where the attacker has access to the console. This module
+  allows for command execution or Empire stager deployment through Jenkins' built-in
+  scripting functionality.
+
+  The technique requires authenticated access to the
+  Jenkins web interface with sufficient privileges to access the Script Console
+  (typically admin privileges). Once accessed, the console allows execution of
+  Groovy scripts in the context of the Jenkins server process, which typically
+  runs with high privileges on the host.
+
+  This approach is particularly effective
+  for targeting DevOps infrastructure, as Jenkins servers often have extensive
+  network access and trusted connections to other systems for CI/CD purposes. The
+  module supports both direct command execution and downloading/executing files
+  from remote sources.
+
+  While Jenkins may log script console usage, many organizations
+  don't actively monitor these logs, making this technique relatively stealthy
+  compared to endpoint-based execution methods.
+software: ''
+tactics: [TA0002, TA0008]
+techniques: [T1210, T1059.006]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - Deploys an Empire agent to a windows Jenkins server with unauthenticated access
+    to script console.
+options:
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: Rhost
+    description: Specify the remote jenkins server to exploit.
+    required: true
+    value: ''
+  - name: Port
+    description: Specify the port to use.
+    required: true
+    value: '8080'
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: exploitation/Exploit-Jenkins.ps1
+advanced:
+  custom_generate: true

@@ -1,0 +1,43 @@
+name: Get-GPPPassword
+authors:
+  - name: ''
+    handle: '@obscuresec'
+    link: ''
+description: |
+  Extracts plaintext passwords and account information from Group Policy Preferences
+  (GPP) to obtain credentials for privilege escalation. GPP allows administrators
+  to configure user accounts and passwords across domain systems, but stores these
+  credentials in an encrypted format that can be easily decrypted. The module
+  searches for GPP files and decrypts stored credentials, which often include
+  administrative passwords or service account credentials.
+software: ''
+tactics: [TA0006]
+techniques: [T1552.006]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/mattifestation/PowerSploit/blob/master/Exfiltration/Get-GPPPassword.ps1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: privesc/Get-GPPPassword.ps1
+script_end: Get-GPPPassword {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-GPPPassword completed'

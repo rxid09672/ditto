@@ -1,0 +1,50 @@
+name: Invoke-Script
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  PowerShell module that loads and executes a PowerShell script from either a URL or base64 string,
+  then runs a function within the script with parameters. Uses the PowerShell engine to execute
+  the script and run the specified function with the provided parameters.
+software: S0194
+tactics: [TA0002]
+techniques: [T1059]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+options:
+  - name: ScriptType
+    description: Type of script you want to execute.
+    required: true
+    value: 'URL'
+    internal: true
+    strict: true
+    suggested_values:
+      - URL
+      - File
+  - name: File
+    description: PowerShell script to load and run from memory.
+    required: false
+    value: ''
+    type: file
+    depends_on:
+      - name: ScriptType
+        values: ['File']
+  - name: ScriptUrl
+    description: URL to download a PowerShell script from.
+    required: false
+    value: 'https://raw.githubusercontent.com/samratashok/nishang/master/Gather/Get-Information.ps1'
+    depends_on:
+      - name: ScriptType
+        values: ['URL']
+  - name: FunctionCommand
+    description: The function command and arguementsto run after the script is loaded.
+    required: true
+    value: 'Get-Information'
+script_path: code_execution/Invoke-Script.ps1
+advanced:
+  custom_generate: true

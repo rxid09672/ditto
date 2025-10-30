@@ -1,0 +1,141 @@
+name: Invoke-ExecuteMSBuild
+authors:
+  - name: Chris Ross
+    handle: '@xorrior'
+    link: https://twitter.com/xorrior
+description: |
+  Executes PowerShell commands or Empire stagers on remote targets using
+  MSBuild, Microsoft's build engine for .NET applications. This technique leverages
+  MSBuild's ability to compile and execute inline C# code from XML project files,
+  bypassing application allowlisting solutions that may block PowerShell.exe but
+  trust MSBuild.exe.
+
+  The module creates a specially crafted XML file that embeds
+  the payload within an MSBuild project, then remotely triggers MSBuild to process
+  this file, executing the payload in memory. Since MSBuild is a trusted Microsoft-signed
+  binary (LOLBins technique), this execution method often evades traditional detection
+  methods that focus on suspicious process lineage.
+
+  Best used in environments
+  where PowerShell execution is monitored or restricted but MSBuild.exe is available
+  and not heavily monitored.
+software: ''
+tactics: [TA0002, TA0005, TA0008]
+techniques: [T1127.001, T1047, T1021.006]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - Inspired by @subtee
+  - http://subt0x10.blogspot.com/2016/09/bypassing-application-whitelisting.html
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: Payload
+    description: Manually build command or use Empire.
+    required: true
+    value: 'Manual'
+    strict: true
+    suggested_values:
+      - Manual
+      - Empire
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+  - name: Command
+    description: Custom command to run.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: ComputerName
+    description: Host to target
+    required: true
+    value: ''
+  - name: UserName
+    description: UserName if executing with credentials
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Password
+    description: Password if executing with credentials
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: FilePath
+    description: Desired location to copy the xml file on the target
+    required: false
+    value: ''
+  - name: DriveLetter
+    description: Drive letter to use when mounting the share locally
+    required: false
+    value: ''
+script_path: lateral_movement/Invoke-ExecuteMSBuild.ps1
+advanced:
+  custom_generate: true

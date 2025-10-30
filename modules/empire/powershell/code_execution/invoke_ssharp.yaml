@@ -1,0 +1,37 @@
+name: Invoke-SSharp
+authors:
+  - name: ''
+    handle: '@byt3bl33d3r'
+    link: https://twitter.com/byt3bl33d3r
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  PowerShell module that executes SSharp from an embedded compiler within PowerShell.
+  Compilation does not call csc.exe. Uses the OffensiveDLR library to compile and execute
+  SSharp code, providing a flexible and powerful way to execute custom scripts or payloads
+  within the PowerShell environment.
+software: ''
+tactics: [TA0002, TA0005]
+techniques: [T1059, T1620]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PetroProtsyk/SSharp
+  - https://github.com/byt3bl33d3r/OffensiveDLR
+  - https://github.com/BC-SECURITY/OffensiveDLR
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: source
+    description: Base64 encoded SSharp code
+    required: true
+    value: ''
+script_path: code_execution/Invoke-SSharp.ps1
+script_end: Invoke-SSharp {{ PARAMS }}

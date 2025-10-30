@@ -1,0 +1,75 @@
+name: Invoke-EnvBypass
+authors:
+  - name: Petr Medonos
+    handle: ''
+    link: ''
+description: |
+  A privilege escalation module that bypasses User Account Control (UAC)
+  by manipulating environment variables in the Windows registry. This
+  technique exploits a vulnerability in how Windows handles environment
+  variable expansion during elevated process creation.
+
+  The module modifies the "windir" value in the Environment registry
+  key to redirect system path resolution, allowing the execution of
+  arbitrary code with elevated privileges. This technique is based on
+  research by James Forshaw and can bypass UAC even when set to the
+  highest "Always Notify" level.
+
+  This approach is particularly effective as it doesn't require user
+  interaction and can bypass most UAC configurations. However, it
+  creates registry modifications that may be detected by security
+  monitoring tools and requires cleanup after successful execution.
+software: ''
+tactics: [TA0004]
+techniques: [T1548.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://tyranidslair.blogspot.cz/2017/05/exploiting-environment-variables-in.html
+options:
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: privesc/Invoke-EnvBypass.ps1
+advanced:
+  custom_generate: true

@@ -1,0 +1,88 @@
+name: Invoke-SQLOSCMD
+authors:
+  - name: ''
+    handle: '@nullbind'
+    link: ''
+  - name: ''
+    handle: '@0xbadjuju'
+    link: ''
+description: |
+  Executes commands or Empire stagers on remote systems by leveraging
+  SQL Server's xp_cmdshell stored procedure. This technique enables lateral movement
+  through SQL Server instances that have the xp_cmdshell feature enabled or where
+  the attacker has sufficient privileges to enable it.
+
+  The module connects to
+  a remote SQL Server using provided credentials, enables the xp_cmdshell procedure
+  if necessary (requiring sysadmin privileges), executes the specified command,
+  and optionally disables xp_cmdshell afterward to cover tracks.
+
+  This technique
+  is particularly effective in environments where SQL Servers are trusted and less
+  monitored than traditional endpoints. It operates over standard SQL Server ports
+  (typically 1433/TCP) and can bypass network segmentation that might otherwise
+  prevent direct access to target systems.
+
+  Be aware that xp_cmdshell usage is
+  often logged and may trigger alerts in security-conscious environments where
+  SQL Server activity is monitored.
+software: ''
+tactics: [TA0002, TA0008]
+techniques: [T1505.001]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+  - name: Instance
+    description: Host[s] to execute the stager on, comma separated.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+  - name: Command
+    description: Custom command to execute on remote hosts.
+    required: false
+    value: ''
+  - name: UserName
+    description: '[domain\]username to use to execute command.'
+    required: false
+    value: ''
+  - name: Password
+    description: Password to use to execute command.
+    required: false
+    value: ''
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+script_path: lateral_movement/Invoke-SQLOSCmd.ps
+advanced:
+  custom_generate: true

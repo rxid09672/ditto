@@ -1,0 +1,64 @@
+name: SudoPiggyback
+authors:
+  - name: ''
+    handle: '@n00py'
+    link: https://twitter.com/n00py1
+description: |
+  A macOS-specific privilege escalation technique that exploits sudo session
+  management to spawn a new Empire agent with elevated privileges. This module
+  leverages an existing sudo session to execute commands with root privileges
+  without requiring password re-authentication.
+
+  The technique works by:
+  - Detecting and utilizing an active sudo session on the system
+  - Bypassing the normal sudo authentication requirements
+  - Executing the Empire stager with root privileges
+  - Establishing a new high-integrity agent process
+
+  This method is particularly effective because it:
+  - Requires no password input from the attacker
+  - Works silently in the background
+  - Leverages legitimate sudo session mechanisms
+  - Provides immediate privilege escalation
+
+  Compatibility: This technique works on macOS versions up to El Capitan (10.11).
+  Apple patched this vulnerability in subsequent releases, making it ineffective
+  on newer macOS versions. This makes it a valuable technique for targeting
+  legacy macOS systems that may still be in use in enterprise environments.
+software: T1169
+tactics: []
+techniques:
+  - T1050
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '2.6'
+comments:
+  - Inspired by OS X Incident Response by Jason Bradley
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: SafeChecks
+    description: Checks for LittleSnitch or a SandBox, exit the staging process if
+      true. Defaults to True.
+    required: true
+    value: 'True'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+advanced:
+  custom_generate: true

@@ -1,0 +1,58 @@
+name: Invoke-Script
+authors:
+  - name: "Anthony Rose"
+    handle: "@Cx01N"
+    link: "https://twitter.com/Cx01N_"
+description: |
+  A PowerShell module that executes bypass techniques from the Empire
+  server to evade detection and monitoring systems. This module
+  applies various obfuscation and evasion techniques to PowerShell
+  launchers before execution on the target system.
+
+  The module supports multiple bypass techniques including ETW
+  bypass, AMSI bypass, and other evasion methods that can be
+  combined to create highly obfuscated payloads. These bypasses
+  are prepended to the launcher code to ensure the payload can
+  execute without triggering security monitoring systems.
+
+  The module also supports optional code obfuscation using
+  Invoke-Obfuscation techniques to further hide the malicious
+  code from detection mechanisms. This multi-layered approach
+  to evasion makes it particularly effective for maintaining
+  stealth during post-exploitation activities and avoiding
+  detection by advanced security solutions.
+software: ''
+tactics: [TA0005]
+techniques: [T1562.006]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: true
+    value: mattifestation etw
+  - name: Obfuscate
+    description: Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+advanced:
+  custom_generate: true

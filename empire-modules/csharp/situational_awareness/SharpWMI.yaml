@@ -1,0 +1,235 @@
+name: SharpWMI
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  C# module that uses SharpWMI to execute Windows Management Instrumentation (WMI) queries and
+  operations on the local system. Provides comprehensive WMI query capabilities including
+  enumeration, creation, and execution of WMI events. Supports both x86 and x64 architectures
+  and can be used for situational awareness to identify running services, processes, and other
+  system components.
+software: ''
+tactics: [TA0002]
+techniques: [T1047, T1546.003]
+background: true
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: Command
+    description: SharpWMI command to execute.
+    required: false
+    value: action=query
+    strict: false
+    suggested_values:
+      - action=query
+      - action=create
+      - action=executevbs
+csharp:
+  UnsafeCompile: true
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
+    using System.Collections.Generic;
+    using System.Reflection;
+    using System.Text;
+    using System.Linq;
+    using System.Text.RegularExpressions;
+    using SharpSC;
+
+    public static class Program
+    {
+        private static byte originalByte;
+
+        public static void Main(string[] args)
+        {
+              PatchEnvironmentExit();
+
+              try
+              {
+                  Console.WriteLine("\n[DEBUG] Original args (before normalization):");
+                  for (int i = 0; i < args.Length; i++)
+                  {
+                      Console.WriteLine($"  args[{i}]: '{args[i]}'");
+                  }
+
+                  // Normalize double-double quotes ("") to single quotes (")
+                  string normalizedArgs = args[0].Replace("\"\"", "\"");
+
+                  Console.WriteLine("\n[DEBUG] Normalized args:");
+                  Console.WriteLine($"  '{normalizedArgs}'");
+
+                  // Now properly split arguments
+                  string[] manuallySplitArgs = Regex.Matches(normalizedArgs, @"[^\s=]+=""[^""]*""|[^\s=]+=[^\s""]+")
+                                                    .Cast<Match>()
+                                                    .Select(m => m.Value)
+                                                    .ToArray();
+
+                  Console.WriteLine("\n[DEBUG] Manually split args:");
+                  for (int i = 0; i < manuallySplitArgs.Length; i++)
+                  {
+                      Console.WriteLine($"  manuallySplitArgs[{i}]: '{manuallySplitArgs[i]}'");
+                  }
+
+                  // Parse key-value pairs explicitly
+                  var parsedArgs = manuallySplitArgs.Select(arg =>
+                  {
+                      int idx = arg.IndexOf('=');
+                      if (idx > -1)
+                      {
+                          string key = arg.Substring(0, idx);
+                          string val = arg.Substring(idx + 1).Trim('"');
+                          return $"{key}={val}";
+                      }
+                      return arg;
+                  }).ToArray();
+
+                  Console.WriteLine("\n[DEBUG] Parsed Arguments:");
+                  foreach (string arg in parsedArgs)
+                  {
+                      Console.WriteLine($"[>] Argument: {arg}");
+                  }
+
+                  // Finally invoke SharpWMI
+                  typeof(SharpWMI.Program)
+                      .GetMethod("Main", BindingFlags.NonPublic | BindingFlags.Static)
+                      .Invoke(null, new object[] { parsedArgs });
+
+              }
+              catch (Exception ex)
+              {
+                  Console.WriteLine($"Error: {ex.Message}");
+              }
+        }
+
+        private static void PatchEnvironmentExit()
+        {
+            var methods = new List<MethodInfo>(typeof(Environment).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+            var exitMethod = methods.Find((MethodInfo mi) => mi.Name == "Exit");
+
+            RuntimeHelpers.PrepareMethod(exitMethod.MethodHandle);
+            var exitMethodPtr = exitMethod.MethodHandle.GetFunctionPointer();
+
+            unsafe
+            {
+                IntPtr target = exitMethod.MethodHandle.GetFunctionPointer();
+
+                MEMORY_BASIC_INFORMATION mbi;
+
+                if (VirtualQueryEx((IntPtr)(-1), target, out mbi, (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION))) != 0)
+                {
+                    if (mbi.Protect == (uint)AllocationProtectEnum.PAGE_EXECUTE_READ)
+                    {
+                        uint flOldProtect;
+
+                        if (VirtualProtectEx((IntPtr)(-1), (IntPtr)target, (IntPtr)1, (uint)AllocationProtectEnum.PAGE_EXECUTE_READWRITE, out flOldProtect))
+                        {
+                            originalByte = *(byte*)target;
+                            *(byte*)target = 0xc3;
+
+                            VirtualProtectEx((IntPtr)(-1), (IntPtr)target, (IntPtr)1, flOldProtect, out flOldProtect);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void UnpatchEnvironmentExit()
+        {
+            var methods = new List<MethodInfo>(typeof(Environment).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+            var exitMethod = methods.Find((MethodInfo mi) => mi.Name == "Exit");
+
+            RuntimeHelpers.PrepareMethod(exitMethod.MethodHandle);
+            var exitMethodPtr = exitMethod.MethodHandle.GetFunctionPointer();
+
+            unsafe
+            {
+                IntPtr target = exitMethod.MethodHandle.GetFunctionPointer();
+
+                MEMORY_BASIC_INFORMATION mbi;
+
+                if (VirtualQueryEx((IntPtr)(-1), target, out mbi, (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION))) != 0)
+                {
+                    if (mbi.Protect == (uint)AllocationProtectEnum.PAGE_EXECUTE_READ)
+                    {
+                        uint flOldProtect;
+
+                        if (VirtualProtectEx((IntPtr)(-1), (IntPtr)target, (IntPtr)1, (uint)AllocationProtectEnum.PAGE_EXECUTE_READWRITE, out flOldProtect))
+                        {
+                            *(byte*)target = originalByte;
+
+                            VirtualProtectEx((IntPtr)(-1), (IntPtr)target, (IntPtr)1, flOldProtect, out flOldProtect);
+                        }
+                    }
+                }
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MEMORY_BASIC_INFORMATION
+        {
+            public IntPtr BaseAddress;
+            public IntPtr AllocationBase;
+            public uint AllocationProtect;
+            public IntPtr RegionSize;
+            public uint State;
+            public uint Protect;
+            public uint Type;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern int VirtualQueryEx(IntPtr hProcess, IntPtr lpAddress, out MEMORY_BASIC_INFORMATION lpBuffer, uint dwLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool VirtualProtectEx(IntPtr hProcess, IntPtr lpAddress, IntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+
+        private enum AllocationProtectEnum : uint
+        {
+            PAGE_EXECUTE_READ = 0x20,
+            PAGE_EXECUTE_READWRITE = 0x40,
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpWMI
+      Description: SharpWMI is a C# implementation of various WMI functionality.
+      Location: SharpWMI\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

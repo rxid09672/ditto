@@ -1,0 +1,116 @@
+name: ShellCmd
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  Uses .NET's System.Diagnostics.StartProcess to create a child process
+  of the current process to run the provided commands. Commands are executed from
+  the current directory of the agent process. Provided commands are automatically
+  appended with "cmd.exe /c" and this module is equivalent to csharp_code_execution_sharpsploit_shell
+  in all other aspects.
+software: ''
+tactics: [TA0002]
+techniques: [T1059.003]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: ShellCommand
+    description: The ShellCommand to execute.
+    required: true
+    value: whoami
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Execution;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string shellCommand = args.Length > 0 ? args[0] : "";
+            string result = ExecuteCmdProcess(shellCommand);
+            Console.WriteLine(result);
+        }
+
+        public static string ExecuteCmdProcess(string shellCommand)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    string output = Shell.CreateCmdProcess(shellCommand);
+                    stringWriter.WriteLine(output);
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions: ''
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

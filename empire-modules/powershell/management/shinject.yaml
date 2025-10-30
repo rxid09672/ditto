@@ -1,0 +1,93 @@
+name: Shinject
+authors:
+  - name: Chris Ross
+    handle: '@xorrior'
+    link: https://twitter.com/xorrior
+  - name: ''
+    handle: '@mattefistation'
+    link: ''
+  - name: ''
+    handle: '@monogas'
+    link: ''
+description: |
+  Injects Position Independent Code (PIC) shellcode payload into a target
+  process using the Invoke-Shellcode technique. This module allows operators to
+  execute arbitrary shellcode within the context of an existing process, bypassing
+  traditional process creation monitoring.
+
+  Shellcode injection is a sophisticated
+  technique that loads and executes machine code directly in memory without creating
+  files on disk. This approach helps evade file-based detection mechanisms and
+  allows operators to run custom payloads within trusted processes.
+
+  The module
+  supports injection into both 32-bit and 64-bit processes, with automatic architecture
+  detection. This capability is essential for executing custom tools, establishing
+  persistence mechanisms, or running specialized payloads that require direct memory
+  execution.
+software: S0194
+tactics: [TA0005]
+techniques: [T1620]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - comment
+  - ''
+options:
+  - name: Process
+    description: ProcessID or name.
+    required: true
+    value: 'ProcId'
+    strict: true
+    internal: true
+    suggested_values:
+      - ProcId
+      - ProcName
+  - name: ProcId
+    description: ProcessID to inject into.
+    required: false
+    value: ''
+    depends_on:
+      - name: Process
+        values: ['ProcId']
+  - name: ProcName
+    description: Process name to inject into.
+    required: false
+    value: ''
+    depends_on:
+      - name: Process
+        values: ['ProcName']
+  - name: Arch
+    description: Architecture of the target process.
+    required: true
+    value: both
+    strict: true
+    suggested_values:
+      - x64
+      - x86
+      - both
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: code_execution/Invoke-Shellcode.ps1
+advanced:
+  custom_generate: true

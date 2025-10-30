@@ -1,0 +1,41 @@
+name: Open Safari in the background and play Thunderstruck.
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  Launches Safari browser in the background and automatically navigates to
+  the AC/DC "Thunderstruck" music video on YouTube while setting system
+  volume to maximum. This module performs a humorous prank by playing
+  loud music without user interaction. Uses macOS system commands to
+  control volume settings and launch Safari with specific URL parameters.
+software: ''
+tactics: []
+techniques:
+  - T1491
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: false
+language: python
+min_language_version: '2.6'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+script: |-
+  import subprocess
+
+  try:
+      volume = \"""osascript -e "set Volume 100" ""\"
+      process1 = subprocess.Popen(volume, stdout=subprocess.PIPE, shell=True)
+      cmd = \"""open -a "Safari" -g -j https://www.youtube.com/watch?v=v2AC41dglnM""\"
+      process2 = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
+      print("Thunderstruck engaged!")
+
+  except Exception as e:
+      print("Module failed")
+      print(e)

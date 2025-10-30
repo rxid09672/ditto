@@ -1,0 +1,52 @@
+name: iMessageDump
+authors:
+  - name: Alex Rymdeko-Harvey
+    handle: ''
+    link: ''
+  - name: ''
+    handle: '@Killswitch-GUI'
+    link: ''
+description: |
+  Extracts and enumerates iMessage conversations from the SQLite
+  database used by the macOS Messages application. Queries the
+  chat.db database to retrieve message content, timestamps,
+  sender information, and conversation metadata. Supports
+  configurable message limits and optional keyword searching
+  within message content. Leverages the unencrypted nature of
+  the local iMessage database to access message history.
+  Provides comprehensive messaging reconnaissance for intelligence
+  gathering and communication analysis. Useful for collecting
+  sensitive conversations, contact information, and understanding
+  user communication patterns.
+software: ''
+tactics: []
+techniques:
+  - T1081
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - Using SQLite3 iMessage has a decent standard to correlate users to messages and
+    isnt encrypted.
+options:
+  - name: Agent
+    description: Agent to run from.
+    required: true
+    value: ''
+  - name: Messages
+    description: The number of messages to enumerate from most recent.
+    required: true
+    value: '10'
+  - name: Search
+    description: Enable a find keyword to search for within the iMessage Database.
+    required: false
+    value: ''
+  - name: Debug
+    description: Enable a find keyword to search for within the iMessage Database.
+    required: true
+    value: 'False'
+advanced:
+  custom_generate: true

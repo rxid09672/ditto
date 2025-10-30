@@ -1,0 +1,84 @@
+name: Invoke-FodHelperBypass
+authors:
+  - name: Petr Medonos
+    handle: ''
+    link: ''
+description: |
+  A privilege escalation module that bypasses User Account Control (UAC)
+  by exploiting the Windows Features on Demand Helper (FodHelper.exe).
+  This technique manipulates registry keys to redirect FodHelper's
+  execution flow and execute arbitrary code with elevated privileges.
+
+  The module modifies registry entries that control how FodHelper.exe
+  processes feature installation requests. By hijacking the registry
+  path that FodHelper uses to launch its helper processes, the module
+  can execute custom code with administrative privileges while bypassing
+  UAC prompts.
+
+  This technique is effective because FodHelper.exe is a legitimate
+  Windows component that runs with elevated privileges by design,
+  making it an attractive target for UAC bypass techniques. The
+  registry modifications required are minimal and can be easily
+  cleaned up after successful execution.
+software: ''
+tactics: [TA0004]
+techniques: [T1548.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://winscripting.blog/2017/05/12/first-entry-welcome-and-uac-bypass/
+options:
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Language
+    description: Language of the stager to generate (if using a Listener).
+    required: true
+    value: powershell
+    strict: true
+    suggested_values:
+      - powershell
+      - csharp
+      - ironpython
+      - go
+  - name: Obfuscate
+    description: Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - true
+      - false
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use (only when Obfuscate=True
+      and Language=powershell).
+    required: false
+    value: Token\All\1
+    depends_on:
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: privesc/Invoke-FodHelperBypass.ps1
+advanced:
+  custom_generate: true

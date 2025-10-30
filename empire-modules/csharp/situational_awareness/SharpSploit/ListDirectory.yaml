@@ -1,0 +1,125 @@
+name: ListDirectory
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  C# module that leverages SharpSploit's Directory enumeration capabilities to discover
+  and enumerate directories on the local system. Uses SharpSploit's Directory class
+  to query the local system for directory information, returning detailed DirectoryInfo
+  information including directory names, descriptions, and local attributes. Supports
+  targeted enumeration of specific directories by name or comprehensive enumeration
+  of all directories.
+software: ''
+tactics: [TA0007]
+techniques: [T1083]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: Path
+    description: Directory to list.
+    required: false
+    value: .
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Enumeration;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string path = args.Length > 0 ? args[0] : "";
+            string result = GetDirectoryListing(path);
+            Console.WriteLine(result);
+        }
+
+        public static string GetDirectoryListing(string path)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(path) || path.Trim().Length == 0)
+                    {
+                        stringWriter.WriteLine(Host.GetDirectoryListing().ToString());
+                    }
+                    else
+                    {
+                        stringWriter.WriteLine(Host.GetDirectoryListing(path.Trim()).ToString());
+                    }
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

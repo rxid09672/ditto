@@ -1,0 +1,86 @@
+name: Invoke-WMIUpdater
+authors:
+  - name: Matt Graeber
+    handle: '@mattifestation'
+    link: https://twitter.com/mattifestation
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+  - name: ''
+    handle: '@tristandostaler'
+    link: ''
+  - name: ''
+    handle: '@janit0rjoe'
+    link: ''
+description: |
+  Establishes persistence using a permanent WMI event subscription that
+  executes a launcher script when specific system events occur. This module creates
+  a sophisticated persistence mechanism that leverages Windows Management Instrumentation
+  to trigger execution based on various system events such as process creation,
+  logon events, or scheduled times.
+
+  WMI-based persistence uses legitimate Windows
+  management infrastructure and can be configured to trigger on common system events,
+  making detection more difficult. The module supports multiple trigger types including
+  daily execution, specific days of the week/month, and can fetch payloads from
+  remote locations for additional stealth.
+
+  This technique requires administrative
+  privileges and creates WMI artifacts that can be detected by advanced security
+  monitoring tools.
+software: ''
+tactics: [TA0003]
+techniques: [T1546.003]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/mattifestation/PowerSploit/blob/master/Persistence/Persistence.psm1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Launcher
+    description: Launcher command string to execute.
+    required: true
+    value: 'powershell -noP -sta -w 1 -enc '
+  - name: DailyTime
+    description: 'Daily time to trigger the script (format: HH:mm).'
+    required: false
+    value: ''
+  - name: Day
+    description: Day of month to trigger the script (1-31, optional with DailyTime).
+    required: false
+    value: ''
+  - name: DayOfWeek
+    description: Day of week to trigger the script (0-6, Sunday = 0, optional with
+      DailyTime).
+    required: false
+    value: ''
+  - name: SubName
+    description: Name for the WMI event subscription.
+    required: true
+    value: AutoUpdater
+  - name: ExtFile
+    description: Path to external file containing the payload (leave blank to use
+      WebFile).
+    required: false
+    value: ''
+  - name: Cleanup
+    description: Remove the persistence mechanism and clean up artifacts.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: WebFile
+    description: URL location of the launcher.bat file to fetch over the network.
+    required: true
+    value: http://127.0.0.1/launcher.bat
+advanced:
+  custom_generate: true

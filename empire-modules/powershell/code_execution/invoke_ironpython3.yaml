@@ -1,0 +1,36 @@
+name: Invoke-IronPython3
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+  - name: ''
+    handle: '@byt3bl33d3r'
+    link: https://twitter.com/byt3bl33d3r
+description: |
+  PowerShell module that executes IronPython 3.4 code using the embedded IPY engine.
+  Uses the OffensiveDLR library to compile and execute IronPython 3.4 code, providing a
+  flexible and powerful way to execute custom scripts or payloads within the PowerShell
+  environment.
+software: ''
+tactics: [TA0002, TA0005]
+techniques: [T1059, T1620]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/BC-SECURITY/OffensiveDLR
+  - https://github.com/byt3bl33d3r/OffensiveDLR
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: ipyscript
+    description: Base64 encoded IronPython3 code
+    required: true
+    value: ''
+script_path: code_execution/Invoke-IronPython3.ps1
+script_end: Invoke-IronPython3 {{ PARAMS }}

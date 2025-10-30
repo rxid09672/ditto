@@ -1,0 +1,31 @@
+name: Linux MimiPenguin
+authors:
+  - name: ''
+    handle: '@rvrsh3ll'
+    link: ''
+description: |
+  Extracts cleartext passwords from memory on Linux systems by
+  scanning process memory for authentication data. Leverages
+  techniques similar to the original MimiPenguin tool to locate
+  and extract plaintext credentials stored in memory by various
+  applications and services. Requires root privileges to access
+  process memory and scan for sensitive authentication data.
+  Useful for credential harvesting, password recovery, and
+  post-exploitation reconnaissance on Linux systems.
+software: S0179
+tactics: []
+techniques:
+  - T1003
+background: false
+output_extension: ''
+needs_admin: true
+opsec_safe: true
+language: python
+min_language_version: '3'
+comments: []
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+script_path: python/collection/mimipenguin.py

@@ -1,0 +1,54 @@
+name: Invoke-PythonScript
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Dynamically loads and executes Python scripts from remote URLs or base64-encoded strings
+  to enable flexible code execution capabilities. Supports both direct script execution
+  and function calls with parameters within loaded scripts. This module provides a
+  powerful mechanism for executing custom Python payloads without requiring persistent
+  file storage on the target system.
+software: S0194
+tactics:
+  - TA0002
+techniques:
+  - T1059.006
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '3'
+options:
+  - name: ScriptType
+    description: Type of script you want to execute.
+    required: true
+    value: 'URL'
+    internal: true
+    strict: true
+    suggested_values:
+      - URL
+      - File
+  - name: File
+    description: Python script to load and run from memory (as base64).
+    required: false
+    value: ''
+    type: file
+    depends_on:
+      - name: ScriptType
+        values: ['File']
+  - name: ScriptUrl
+    description: URL to download a Python script from.
+    required: false
+    value: ''
+    depends_on:
+      - name: ScriptType
+        values: ['URL']
+  - name: FunctionCommand
+    description: The function command to run after the script is loaded (optional).
+    required: false
+    value: ''
+script_path: python/code_execution/invoke_script.py
+advanced:
+  custom_generate: true

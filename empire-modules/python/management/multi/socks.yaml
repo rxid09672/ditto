@@ -1,0 +1,36 @@
+name: SOCKSv5 Proxy
+authors:
+  - name: klustic
+    handle: ''
+    link: ''
+description: |
+  Establishes a SOCKSv5 proxy tunnel through the Empire agent
+  using the AlmondRocks (AROX) relay system. Creates a proxy
+  connection that routes traffic through the compromised system
+  to extend network access and enable lateral movement. Requires
+  a standalone AlmondRocks server to be configured and running
+  for the relay to connect to.
+software: ''
+tactics: []
+techniques:
+  - T1090
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '3'
+comments:
+  - You must set up a standalone AlmondRocks server for this to connect to! Refer
+    to the AlmondRocks Github project for more details.
+  - 'Repo: https://github.com/Cx01N/AlmondRocks/'
+options:
+  - name: Agent
+    description: Agent to run the AROX relay on
+    required: true
+    value: ''
+  - name: server
+    description: FQDN/IPv4 and port of the AROX server (e.g. 1.2.3.4:443 or hax0r.com:443)
+    required: true
+    value: ''
+script_path: python/management/socks.py

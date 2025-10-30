@@ -1,0 +1,37 @@
+name: adcs_enum_com2
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Enumerates enterprise Certificate Authorities (CAs) and their certificate
+  templates in Active Directory using the IX509PolicyServerListManager COM interface.
+  Unlike the ICertConfig-based variant, this method uses a more modern COM interface
+  associated with AD CS policy management.
+software: ''
+tactics: [TA0043, TA0007]
+techniques: [T1590.001, T1590.003, T1482, T1559.001]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: bof
+min_language_version: ''
+comments:
+  - https://github.com/trustedsec/CS-Situational-Awareness-BOF
+options:
+  - name: Architecture
+    description: Architecture of the beacon_funcs.o to generate with (x64 or x86).
+    required: true
+    value: x64
+    strict: true
+    suggested_values:
+      - x64
+      - x86
+bof:
+  x86: bof/situational_awareness/adcs_enum_com2/adcs_enum_com2.x86.o
+  x64: bof/situational_awareness/adcs_enum_com2/adcs_enum_com2.x64.o
+  entry_point: ''
+  format_string: ''
+script_path: ''
+script_end: ''

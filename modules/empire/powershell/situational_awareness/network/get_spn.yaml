@@ -1,0 +1,69 @@
+name: Get-SPN
+authors:
+  - name: ''
+    handle: '@_nullbind'
+    link: ''
+description: |
+  A network reconnaissance module that enumerates Service Principal
+  Names (SPNs) from Active Directory using LDAP queries. This module
+  discovers service accounts and their associated services, providing
+  valuable information for Kerberos-based attacks and service
+  enumeration.
+
+  The module can search for SPNs by service type, user account, or
+  group membership. It supports wildcard searches and can identify
+  various service types including SQL Server, Exchange, HTTP, and
+  other enterprise services. This information is crucial for
+  understanding the service landscape and identifying potential
+  targets for Kerberoasting attacks.
+
+  Service Principal Names are essential for Kerberos authentication
+  and can reveal service accounts that may have elevated privileges
+  or access to sensitive resources. The module provides detailed
+  output including service names, user accounts, and service
+  locations, making it an essential tool for Active Directory
+  reconnaissance and privilege escalation planning.
+software: ''
+tactics: [TA0007]
+techniques: [T1558, T1087.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://raw.githubusercontent.com/nullbind/Powershellery/master/Stable-ish/Get-SPN/Get-SPN.psm1
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Type
+    description: "'group', 'user', or 'service'"
+    required: false
+    value: service
+    strict: true
+    suggested_values:
+      - group
+      - user
+      - service
+  - name: Search
+    description: Search string for group, username, or service name. Wildcards accepted.
+    required: false
+    value: MSSQL*
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/Get-SPN.ps1
+script_end: Get-SPN {{ PARAMS }}  -List yes | Format-Table -Wrap | {{ OUTPUT_FUNCTION
+  }} | %{$_ + "`n"}; 'Get-SPN completed'

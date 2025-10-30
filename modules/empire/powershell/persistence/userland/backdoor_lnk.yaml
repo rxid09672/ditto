@@ -1,0 +1,98 @@
+name: Invoke-BackdoorLNK
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A persistence module that modifies an existing shortcut (.LNK) file to execute
+  both the original target application and an Empire stager. By backdooring a
+  shortcut already present on the system, the module ensures that normal user
+  workflows are preserved while covertly establishing persistence.
+
+  The module supports restoration of the original shortcut and can use either
+  a stager or an external payload, providing flexibility in deployment and
+  cleanup. This approach is particularly effective as it leverages existing
+  user behavior patterns and doesn't require creating new files that might
+  raise suspicion.
+
+  The backdoor LNK technique provides a stealthy persistence mechanism that
+  maintains the appearance of normal system operation while ensuring continued
+  access through user-initiated shortcut execution.
+software: ''
+tactics: [TA0004]
+techniques: [T1204.001, T1547.009]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - http://windowsitpro.com/powershell/working-shortcuts-windows-powershell
+  - http://www.labofapenetrationtester.com/2014/11/powershell-for-client-side-attacks.html
+  - https://github.com/samratashok/nishang
+  - http://blog.trendmicro.com/trendlabs-security-intelligence/black-magic-windows-powershell-used-again-in-new-attack/
+options:
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: LNKPath
+    description: Full path to the .LNK to backdoor.
+    required: true
+    value: ''
+  - name: RegPath
+    description: Registry location to store the script code. Last element is the
+      key name.
+    required: true
+    value: HKCU:\Software\Microsoft\Windows\debug
+  - name: ExtFile
+    description: Use an external file for the payload instead of a stager.
+    required: false
+    value: ''
+  - name: Cleanup
+    description: Restore the original .LNK settings.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+script_path: persistence/Invoke-BackdoorLNK.ps1
+advanced:
+  custom_generate: true

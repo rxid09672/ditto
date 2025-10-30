@@ -1,0 +1,38 @@
+name: Start-MonitorTCPConnections
+authors:
+  - name: ''
+    handle: '@erikbarzdukas'
+    link: ''
+description: |
+  Monitors TCP network connections in real-time to understand network activity patterns
+  and identify potential communication channels. Tracks active connections, listening
+  ports, and connection states using Windows networking APIs. Provides insight into
+  network traffic patterns, potential data exfiltration, and communication with
+  external systems. Information gathered includes local and remote IP addresses,
+  port numbers, connection states, and associated processes.
+software: ''
+tactics: [TA0007]
+techniques: [T1049]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - Based on code from Tim Ferrell.
+options:
+  - name: Agent
+    description: Agent to monitor from.
+    required: true
+    value: ''
+  - name: TargetDomain
+    description: Domain name or IPv4 address of target service.
+    required: true
+    value: ''
+  - name: CheckInterval
+    description: Interval in seconds to check for the connection
+    required: true
+    value: '15'
+script_path: situational_awareness/host/Start-MonitorTCPConnections.ps1
+script_end: Start-TCPMonitor {{ PARAMS }}

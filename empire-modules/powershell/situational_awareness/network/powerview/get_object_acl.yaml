@@ -1,0 +1,107 @@
+name: Get-DomainObjectAcl
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+  - name: ''
+    handle: '@pyrotek3'
+    link: ''
+description: |
+  Enumerates Access Control Lists (ACLs) associated with Active Directory objects to identify permissions, security descriptors, and access rights. This module leverages PowerView's Get-DomainObjectAcl function to retrieve detailed security information for users, groups, computers, and other domain entities. The reconnaissance capability is essential for understanding the domain's security model, identifying privilege escalation opportunities, and mapping access control relationships. By analyzing ACLs, operators can identify users with specific permissions such as password reset rights, group membership modification capabilities, and object modification privileges. The module supports both DACL (Discretionary Access Control List) and SACL (System Access Control List) enumeration, enabling comprehensive security analysis. This information is crucial for privilege escalation planning, persistence establishment, and understanding the domain's administrative structure. The module includes filtering options for specific rights and GUID resolution capabilities to provide human-readable permission information. Warning: Specifying a specific object is recommended to avoid overwhelming output from broad queries.
+software: S0194
+tactics: [TA0007]
+techniques: [T1069, T1615]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Identity
+    description: A SamAccountName, DistinguishedName, SID, GUID, or a dns host name,
+      wildcards accepted.
+    required: false
+    value: ''
+  - name: ResolveGUIDs
+    description: Resolve GUIDs to their display names.
+    required: false
+    value: 'True'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: Sacl
+    description: Return the SACL instead of the DACL for the object (default behavior).
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: LDAPFilter
+    description: A customized ldap filter string to use, e.g. "(description=*admin*)"
+    required: false
+    value: ''
+  - name: RightsFilter
+    description: Only return results with the associated rights, "All", "ResetPassword","ChangePassword","WriteMembers"
+    required: false
+    value: ''
+  - name: Domain
+    description: The domain to use for the query, defaults to the current domain.
+    required: false
+    value: ''
+  - name: Server
+    description: Active Directory server (domain controller) to reflect LDAP queries
+      through.
+    required: false
+    value: ''
+  - name: SearchBase
+    description: The LDAP source to search through, e.g. "LDAP://OU=secret,DC=testlab,DC=local"
+      Useful for OU queries.
+    required: false
+    value: ''
+  - name: SearchScope
+    description: Specifies the scope to search under, Base/OneLevel/Subtree (default
+      of Subtree)
+    required: false
+    value: ''
+  - name: ResultPageSize
+    description: Specifies the PageSize to set for the LDAP searcher object.
+    required: false
+    value: ''
+  - name: ServerTimeLimit
+    description: Specifies the maximum amount of time the server spends searching.
+      Default of 120 seconds.
+    required: false
+    value: ''
+  - name: Tombstone
+    description: Specifies that the search should also return deleted/tombstoned
+      objects.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-DomainObjectAcl {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  'Get-DomainObjectAcl completed'

@@ -1,0 +1,98 @@
+name: Write-HijackDll
+authors:
+  - name: leechristensen (@tifkin_)
+    handle: ''
+    link: ''
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A privilege escalation module that creates a malicious DLL for
+  DLL hijacking attacks. This technique writes a custom DLL to a
+  specified path along with a stager batch file that is called by
+  the DLL when it is loaded by a target process.
+
+  The module creates a DLL that, when loaded by a vulnerable process,
+  executes the stager batch file to establish a connection with
+  elevated privileges. This technique is particularly effective
+  against processes that load DLLs from writable directories or
+  have weak file permissions that allow DLL replacement.
+
+  The module is designed to work with specific DLLs like wlbsctrl.dll
+  on Windows 7 systems, where the target process expects to find
+  the DLL in a specific location. When the system is restarted or
+  the target process is launched, it loads the malicious DLL instead
+  of the legitimate one, executing the stager with the process's
+  elevated privileges. This approach is based on the PowerUp toolkit
+  and represents a sophisticated method of DLL-based privilege escalation.
+software: S0194
+tactics: [TA0004]
+techniques: [T1574.001, T1574.007, T1574.008, T1574.009, T1068]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: false
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellEmpire/PowerTools/tree/master/PowerUp
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: DllPath
+    description: The output path for the hijackable .dll.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: 'privesc/PowerUp.ps1'
+advanced:
+  custom_generate: true

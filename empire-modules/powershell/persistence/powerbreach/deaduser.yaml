@@ -1,0 +1,67 @@
+name: Invoke-DeadUserBackdoor
+authors:
+  - name: ''
+    handle: '@sixdub'
+    link: ''
+description: |
+  A persistence module that establishes a backup backdoor by monitoring for the
+  presence of a specified user account on the target system. If the designated
+  user account is not found, the module initiates a callback to the attacker's
+  server, enabling re-establishment of access.
+
+  This approach provides a resilient persistence mechanism that can automatically
+  trigger a new connection if the primary backdoor user is removed, ensuring
+  continued access even after partial remediation by defenders. The module
+  continuously monitors for the specified user account and maintains stealth
+  by only activating when the account is absent.
+
+  The dead user backdoor technique is particularly effective for maintaining
+  long-term access in environments where user accounts may be periodically
+  cleaned up or removed by security teams, providing a reliable fallback
+  mechanism for persistence.
+software: ''
+tactics: [TA0004]
+techniques: [T1546]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - http://sixdub.net
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: true
+    value: ''
+  - name: OutFile
+    description: Output the backdoor to a file instead of tasking to an agent.
+    required: false
+    value: ''
+  - name: Timeout
+    description: Time (in seconds) to run the backdoor. Defaults to 0 (run forever).
+    required: true
+    value: '0'
+  - name: Sleep
+    description: Time (in seconds) to sleep between checks.
+    required: true
+    value: '30'
+  - name: Username
+    description: User account to check for existence.
+    required: true
+    value: ''
+  - name: Domain
+    description: Check the current domain for the user account.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+advanced:
+  custom_generate: true

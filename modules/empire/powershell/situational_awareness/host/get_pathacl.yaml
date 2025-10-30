@@ -1,0 +1,47 @@
+name: Get-PathAcl
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  Enumerates access control lists (ACLs) for specified file system paths to understand
+  permission structures and identify potential privilege escalation opportunities.
+  Analyzes both discretionary (DACL) and system (SACL) access control lists, showing
+  user and group permissions, inheritance settings, and audit policies. Useful for
+  identifying misconfigured permissions, understanding security boundaries, and finding
+  paths where the current user has elevated access. Essential for privilege escalation
+  planning and understanding the security posture of critical system directories and files.software: ''
+tactics: [TA0007]
+techniques: [T1083, T1106]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Path
+    description: The local/remote (UNC) path to enumerate the ACLs for.
+    required: true
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Get-PathAcl {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Get-PathAcl
+  completed'

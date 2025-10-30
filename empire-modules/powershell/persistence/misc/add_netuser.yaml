@@ -1,0 +1,74 @@
+name: Invoke-AddNetUser
+authors:
+  - name: Will Schroeder
+    handle: '@harmj0y'
+    link: https://twitter.com/harmj0y
+description: |
+  A persistence module that establishes system-level persistence by creating
+  a new user account with administrative privileges and configuring it to
+  execute an Empire stager upon logon. This approach leverages Windows
+  user account management to create a reliable persistence mechanism that
+  provides continued access through a dedicated backdoor account.
+
+  The module creates a new user account with specified credentials and
+  administrative privileges, then configures the account's registry hive
+  to execute the stager upon logon. This technique is particularly effective
+  as it uses legitimate Windows user account infrastructure and provides
+  a dedicated access method that can survive system changes.
+
+  User account creation persistence provides reliable access as it creates
+  a dedicated backdoor account with administrative privileges. However,
+  it requires administrative privileges to implement and creates visible
+  user account artifacts that can be detected by security monitoring
+  tools and user management processes.
+software: ''
+tactics: [TA0003]
+techniques: [T1136.001, T1136.002]
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://github.com/PowerShellMafia/PowerSploit/blob/dev/Recon/
+options:
+  - name: Listener
+    description: Listener to use for the stager.
+    required: false
+    value: ''
+  - name: UserName
+    description: The username to add.
+    required: false
+    value: backdoor
+  - name: Password
+    description: The password to set for the added user.
+    required: false
+    value: Password123!
+  - name: GroupName
+    description: Group to optionally add the user to.
+    required: false
+    value: Administrators
+  - name: ComputerName
+    description: Hostname to add the local user to.
+    required: false
+    value: localhost
+  - name: Domain
+    description: Specified domain to add the user to.
+    required: false
+    value: ''
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: situational_awareness/network/powerview.ps1
+script_end: Add-NetUser {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"}; 'Add-NetUser
+  completed'

@@ -1,0 +1,73 @@
+name: Get User Information
+authors:
+  - name: ''
+    handle: '@424f424f'
+    link: https://twitter.com/424f424f
+description: |
+  An Active Directory enumeration module that retrieves comprehensive user profile
+  information for a specified user account within the target domain. This module
+  performs detailed reconnaissance to gather complete user attributes and account
+  details for intelligence gathering and targeting purposes.
+
+  The module queries Active Directory via LDAP to extract all available user
+  attributes including account details, contact information, organizational data,
+  and security settings. This information is essential for understanding the
+  user's role, privileges, and potential access to sensitive resources within
+  the domain.
+
+  The enumeration results provide critical intelligence for social engineering,
+  privilege escalation, and lateral movement by revealing detailed user profiles
+  and organizational relationships. This module is fundamental for user
+  reconnaissance and helps operators build comprehensive profiles of potential
+  targets for credential harvesting and targeted attacks.
+software: ''
+tactics: []
+techniques:
+  - T1482
+background: false
+output_extension: ''
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - ''
+options:
+  - name: Agent
+    description: Agent to run on.
+    required: true
+    value: ''
+  - name: LDAPAddress
+    description: LDAP IP/Hostname
+    required: true
+    value: ''
+  - name: BindDN
+    description: user@penlab.local
+    required: true
+    value: ''
+  - name: Password
+    description: Password to connect to LDAP
+    required: false
+    value: ''
+  - name: User
+    description: User to check group memberships of
+    required: false
+    value: ''
+script: |-
+  import sys, os, subprocess, re
+  BindDN = "{{ BindDN }}"
+  LDAPAddress = "{{ LDAPAddress }}"
+  password = "{{ Password }}"
+  user = "{{ User }}"
+
+  regex = re.compile('.+@([^.]+)\..+')
+  global tld
+  match = re.match(regex, BindDN)
+  tld = match.group(1)
+  global ext
+  ext = BindDN.split('.')[1]
+
+
+  cmd = \"""ldapsearch -x -h {} -b "dc={},dc={}" -D {} -w {} "(samAccountName="{}")" ""\".format(LDAPAddress, tld, ext, BindDN, password, user)
+  print("")
+  print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())

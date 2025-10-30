@@ -1,0 +1,51 @@
+name: Shellcode Inject x64
+authors:
+  - name: Chris Ross
+    handle: '@xorrior'
+    link: https://twitter.com/xorrior
+  - name: ''
+    handle: '@midnite_runr'
+    link: ''
+description: |
+  Injects x64 shellcode into a specified process on macOS using
+  Mach injection techniques. Leverages the Mach messaging system
+  to allocate memory in the target process, write shellcode to
+  the allocated memory, and execute it within the process context.
+  Requires administrative privileges to perform process injection.
+  Uses a custom C extension to interface with macOS system calls
+  for memory manipulation and process control. Useful for process
+  injection attacks, code execution in foreign processes, and
+  evading detection by executing code within legitimate processes.
+software: ''
+tactics:
+  - TA0002
+  - TA0005
+  - TA0004
+techniques:
+  - T1059
+  - T1055
+  - T1055.001
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - comment
+  - https://github.com/secretsquirrel/osx_mach_stuff/blob/master/inject.c
+options:
+  - name: Agent
+    description: Agent to run the module on
+    required: true
+    value: ''
+  - name: PID
+    description: Process ID
+    required: true
+    value: ''
+  - name: Shellcode
+    description: local path to bin file containing x64 shellcode
+    required: true
+    value: ''
+advanced:
+  custom_generate: true

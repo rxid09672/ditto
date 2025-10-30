@@ -1,0 +1,151 @@
+name: Invoke-SMBExec
+authors:
+  - name: ''
+    handle: '@rvrsh3ll'
+    link: ''
+description: |
+  Executes commands or Empire stagers on remote systems using the SMBExec
+  technique, a lateral movement method that creates and leverages a service on
+  the target system similar to PsExec but with some OPSEC improvements.
+
+  Unlike
+  traditional PsExec, SMBExec avoids writing the payload to disk by leveraging command
+  output redirection through SMB named pipes. It creates a Windows service that
+  executes the command and redirects output over SMB back to the attacker, then removes
+  the service to clean up evidence.
+
+  This technique requires administrative credentials
+  (or equivalent) on the target system and functions over standard SMB ports (445/TCP).
+  It supports both plaintext credentials and NTLM hashes for authentication via
+  pass-the-hash techniques.
+
+  While more stealthy than traditional PsExec, SMBExec
+  still generates Windows service creation events and may be detected by security
+  monitoring focused on service creation patterns and suspicious command execution.
+software: ''
+tactics: [TA0008]
+techniques: [T1021.002, T1569.002, T1078.002]
+background: false
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://raw.githubusercontent.com/Kevin-Robertson/Invoke-TheHash/master/Invoke-SMBExec.ps1
+options:
+  - name: Credentials
+    description: Manually enter credentials or credential ID.
+    required: true
+    value: 'Manual'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - CredID
+  - name: Payload
+    description: Manually build command or use Empire.
+    required: true
+    value: 'Empire'
+    strict: true
+    internal: true
+    suggested_values:
+      - Manual
+      - Empire
+  - name: CredID
+    description: CredID from the store to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['CredID']
+  - name: ComputerName
+    description: Host[s] to execute the stager on, comma separated.
+    required: true
+    value: ''
+  - name: Username
+    description: Username.
+    required: true
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Domain
+    description: Domain.
+    required: true
+    value: .
+  - name: Hash
+    description: NTLM Hash in LM:NTLM or NTLM format.
+    required: true
+    value: ''
+    depends_on:
+      - name: Credentials
+        values: ['Manual']
+  - name: Service
+    description: Name of service to create and delete. Defaults to 20 char random.
+    required: false
+    value: ''
+  - name: Listener
+    description: Listener to use.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Empire']
+  - name: Command
+    description: Custom command to run.
+    required: false
+    value: ''
+    depends_on:
+      - name: Payload
+        values: ['Manual']
+  - name: Obfuscate
+    description: Switch. Obfuscate the launcher powershell code, uses the ObfuscateCommand
+      for obfuscation types. For powershell only.
+    required: false
+    value: 'False'
+    strict: true
+    suggested_values:
+      - True
+      - False
+  - name: ObfuscateCommand
+    description: The Invoke-Obfuscation command to use. Only used if Obfuscate switch
+      is True. For powershell only.
+    required: false
+    value: Token\All\1
+    depends_on:
+      - name: Obfuscate
+        values: ['True']
+  - name: Bypasses
+    description: Bypasses as a space separated list to be prepended to the launcher.
+    required: false
+    value: mattifestation etw
+  - name: UserAgent
+    description: User-agent string to use for the staging request (default, none,
+      or other).
+    required: false
+    value: default
+  - name: Proxy
+    description: Proxy to use for request (default, none, or other).
+    required: false
+    value: default
+  - name: ProxyCreds
+    description: Proxy credentials ([domain\]username:password) to use for request
+      (default, none, or other).
+    required: false
+    value: default
+  - name: OutputFunction
+    description: PowerShell's output function to use ("Out-String", "ConvertTo-Json",
+      "ConvertTo-Csv", "ConvertTo-Html", "ConvertTo-Xml").
+    required: false
+    value: Out-String
+    strict: false
+    suggested_values:
+      - Out-String
+      - ConvertTo-Json
+      - ConvertTo-Csv
+      - ConvertTo-Html
+      - ConvertTo-Xml
+script_path: lateral_movement/Invoke-SMBExec.ps1
+advanced:
+  custom_generate: true

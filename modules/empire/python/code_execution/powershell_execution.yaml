@@ -1,0 +1,50 @@
+name: powershell_execution
+authors:
+  - name: Anthony Rose
+    handle: '@Cx01N'
+    link: https://twitter.com/Cx01N_
+description: |
+  Executes PowerShell commands and scripts on Windows systems through IronPython's
+  .NET integration capabilities. Leverages the System.Management.Automation
+  namespace to create PowerShell runspaces and execute commands directly within
+  the Python environment. This module provides seamless integration between
+  Python and PowerShell execution contexts, enabling the use of PowerShell
+  security tools, system administration commands, and Windows-specific
+  reconnaissance techniques.
+software: ''
+tactics:
+  - TA0002
+techniques:
+  - T1059.001
+background: true
+output_extension:
+needs_admin: false
+opsec_safe: true
+language: python
+min_language_version: '2.6'
+comments:
+  - CIDR Parser credits to http://bibing.us.es/proyectos/abreproy/12106/fichero/ARCHIVOS%252Fservidor_xmlrpc%252Fcidr.py
+options:
+  - name: Agent
+    description: Agent to execute module on.
+    required: true
+    value: ''
+  - name: PowerShell
+    description: Agent to execute module on.
+    required: true
+    value: Write-Host 'Test'
+script: |-
+  from System import Environment
+  import clr, System
+
+  clr.AddReference("System.Management.Automation")
+  from System.Management.Automation import Runspaces
+  myrunspace = Runspaces.RunspaceFactory.CreateRunspace()
+  myrunspace.Open()
+  pipeline = myrunspace.CreatePipeline()
+  pipeline.Commands.AddScript("""
+  {{ PowerShell }}
+  """)
+  results = pipeline.Invoke();
+  for result in results:
+     print(result)

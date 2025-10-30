@@ -1,0 +1,46 @@
+name: New-HoneyHash
+authors:
+  - name: Matt Graeber
+    handle: '@mattifestation'
+    link: https://twitter.com/mattifestation
+description: |
+  A defensive module that injects artificial credentials into the Local Security
+  Authority Subsystem Service (LSASS) memory space to create honeypot credentials
+  that can be used to detect credential harvesting attempts. This module helps
+  identify when attackers are attempting to extract credentials from memory.
+
+  The module creates fake domain credentials and injects them into LSASS memory,
+  where they will be visible to credential harvesting tools like Mimikatz. When
+  attackers attempt to extract credentials, these fake credentials will appear
+  alongside legitimate ones, providing an early warning system for credential
+  harvesting activities.
+software: ''
+tactics: [TA0003]
+techniques: [T1156.001]
+background: false
+output_extension:
+needs_admin: true
+opsec_safe: true
+language: powershell
+min_language_version: '2'
+comments:
+  - https://isc.sans.edu/diary/Detecting+Mimikatz+Use+On+Your+Network/19311/
+options:
+  - name: Agent
+    description: Agent to run module on.
+    required: true
+    value: ''
+  - name: Domain
+    description: Specifies the fake domain.
+    required: true
+    value: ''
+  - name: UserName
+    description: Specifies the fake user name.
+    required: true
+    value: ''
+  - name: Password
+    description: Specifies the fake password.
+    required: true
+    value: ''
+script_path: management/New-HoneyHash.ps1
+script_end: New-HoneyHash {{ PARAMS }}
