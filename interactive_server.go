@@ -609,6 +609,26 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 	is.httpTransportsMu.Lock()
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
+	
+	// Set module getter for the transport
+	httpTransport.SetModuleGetter(func(moduleID string) (string, error) {
+		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
+		if !ok {
+			module, ok = is.moduleRegistry.GetModule(moduleID)
+		}
+		if !ok {
+			return "", fmt.Errorf("module not found: %s", moduleID)
+		}
+		
+		// Process module to get script
+		params := make(map[string]string)
+		script, err := modules.ProcessModule(module, params)
+		if err != nil {
+			return "", fmt.Errorf("failed to process module: %w", err)
+		}
+		
+		return script, nil
+	})
 
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
@@ -692,6 +712,26 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 	is.httpTransportsMu.Lock()
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
+	
+	// Set module getter for the transport
+	httpTransport.SetModuleGetter(func(moduleID string) (string, error) {
+		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
+		if !ok {
+			module, ok = is.moduleRegistry.GetModule(moduleID)
+		}
+		if !ok {
+			return "", fmt.Errorf("module not found: %s", moduleID)
+		}
+		
+		// Process module to get script
+		params := make(map[string]string)
+		script, err := modules.ProcessModule(module, params)
+		if err != nil {
+			return "", fmt.Errorf("failed to process module: %w", err)
+		}
+		
+		return script, nil
+	})
 
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,

