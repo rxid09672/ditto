@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/ditto/ditto/banner"
 	"github.com/ditto/ditto/core"
@@ -111,7 +112,19 @@ func runServer(logger *core.Logger, cfg *core.Config, listenAddr string) {
 
 func runClient(logger *core.Logger, cfg *core.Config, callbackURL string) {
 	if callbackURL == "" {
-		log.Fatal("Callback URL required for client mode")
+		log.Fatal("ERROR: Callback URL is required for client mode\n"+
+			"  Usage: --callback <url>\n"+
+			"  Example: --callback http://192.168.1.100:8443\n"+
+			"  Example: --callback https://c2.example.com:443")
+	}
+	
+	// Validate callback URL format
+	if !strings.HasPrefix(callbackURL, "http://") && !strings.HasPrefix(callbackURL, "https://") {
+		log.Fatalf("ERROR: Invalid callback URL format '%s'\n"+
+			"  Expected format: <protocol>://<host>[:<port>]\n"+
+			"  Valid protocols: http, https\n"+
+			"  Example: --callback http://192.168.1.100:8443\n"+
+			"  Example: --callback https://c2.example.com:443", callbackURL)
 	}
 	
 	logger.Info("Starting client connection to %s", callbackURL)
@@ -125,6 +138,51 @@ func runClient(logger *core.Logger, cfg *core.Config, callbackURL string) {
 }
 
 func generatePayload(logger *core.Logger, cfg *core.Config, payloadType, output, arch, osTarget string, encrypt, obfuscate bool) {
+	if payloadType == "" {
+		log.Fatal("ERROR: Payload type is required\n"+
+			"  Valid types: stager, shellcode, full\n"+
+			"  Usage: --payload <type>")
+	}
+	
+	if arch == "" {
+		log.Fatal("ERROR: Architecture is required\n"+
+			"  Valid architectures: amd64, 386, arm64\n"+
+			"  Usage: --arch <arch>")
+	}
+	
+	if osTarget == "" {
+		log.Fatal("ERROR: Target OS is required\n"+
+			"  Valid OS: linux, windows, darwin\n"+
+			"  Usage: --os <os>")
+	}
+	
+	// Validate payload type
+	validTypes := map[string]bool{"stager": true, "shellcode": true, "full": true}
+	if !validTypes[payloadType] {
+		log.Fatalf("ERROR: Invalid payload type '%s'\n"+
+			"  Valid types: stager, shellcode, full\n"+
+			"  Usage: --payload <type>\n"+
+			"  Example: --payload full", payloadType)
+	}
+	
+	// Validate OS
+	validOS := map[string]bool{"linux": true, "windows": true, "darwin": true}
+	if !validOS[osTarget] {
+		log.Fatalf("ERROR: Invalid OS '%s'\n"+
+			"  Valid OS: linux, windows, darwin\n"+
+			"  Usage: --os <os>\n"+
+			"  Example: --os windows", osTarget)
+	}
+	
+	// Validate architecture
+	validArch := map[string]bool{"amd64": true, "386": true, "arm64": true}
+	if !validArch[arch] {
+		log.Fatalf("ERROR: Invalid architecture '%s'\n"+
+			"  Valid architectures: amd64, 386, arm64\n"+
+			"  Usage: --arch <arch>\n"+
+			"  Example: --arch amd64", arch)
+	}
+	
 	logger.Info("Generating payload: type=%s, arch=%s, os=%s", payloadType, arch, osTarget)
 	
 	// Create module registry for payload generation

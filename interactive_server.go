@@ -389,10 +389,12 @@ func (is *InteractiveServer) handleStopServer() error {
 
 func (is *InteractiveServer) handleListen(args []string) error {
 	if len(args) < 2 {
-		fmt.Println("[!] Usage: listen <type> <addr>")
-		fmt.Println("    Types: http, https, mtls")
-		fmt.Println("    Example: listen http 0.0.0.0:8080")
-		return nil
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: listen <type> <addr>\n"+
+			"  Valid types: http, https, mtls\n"+
+			"  Example: listen http 0.0.0.0:8080\n"+
+			"  Example: listen https 0.0.0.0:8443\n"+
+			"  Example: listen mtls 0.0.0.0:9090")
 	}
 
 	listenerType := strings.ToLower(args[0])
@@ -660,9 +662,10 @@ func (is *InteractiveServer) startMTLSListener(addr, jobName string) func() erro
 
 func (is *InteractiveServer) handleKill(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("[!] Usage: kill <job_id>")
-		fmt.Println("    Use 'jobs' to list job IDs")
-		return nil
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: kill <job_id>\n"+
+			"  Use 'jobs' command to list all active jobs with their IDs\n"+
+			"  Example: kill 1")
 	}
 
 	jobID, err := strconv.ParseUint(args[0], 10, 64)
@@ -688,31 +691,29 @@ func (is *InteractiveServer) handleKill(args []string) error {
 
 func (is *InteractiveServer) handleGenerate(args []string) error {
 	if len(args) < 3 {
-		fmt.Println("[!] Usage: generate <type> <os> <arch> [options]")
-		fmt.Println("    Types: stager, shellcode, full")
-		fmt.Println("    OS: linux, windows, darwin")
-		fmt.Println("    Arch: amd64, 386, arm64")
-		fmt.Println("")
-		fmt.Println("    Options:")
-		fmt.Println("      --output, -o <path>      Output file path")
-		fmt.Println("      --callback, -c <url>     Callback URL (http://host:port or https://host:port)")
-		fmt.Println("      --delay, -d <seconds>    Beacon delay in seconds (default: 30)")
-		fmt.Println("      --jitter, -j <0.0-1.0>   Jitter percentage (default: 0.0)")
-		fmt.Println("      --user-agent, -u <ua>    Custom user agent string")
-		fmt.Println("      --protocol, -p <proto>   Protocol: http, https, mtls (default: http)")
-		fmt.Println("      --no-encrypt            Disable encryption")
-		fmt.Println("      --no-obfuscate          Disable obfuscation")
-		fmt.Println("      --modules, -m <ids>      Comma-separated Empire module IDs to embed")
-		fmt.Println("      --evasion <options>      Evasion features (comma-separated)")
-		fmt.Println("                               Options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls")
-		fmt.Println("")
-		fmt.Println("    Examples:")
-		fmt.Println("      generate full windows amd64 --callback http://192.168.1.100:8443")
-		fmt.Println("      generate stager windows amd64 -o /tmp/implant.exe -c https://example.com:443")
-		fmt.Println("      generate full windows amd64 --callback 192.168.1.100:8443 --delay 60 --jitter 0.3")
-		fmt.Println("      generate full windows amd64 -c http://192.168.1.100:8443 --modules powershell/credentials/mimikatz")
-		fmt.Println("      generate full windows amd64 -c http://192.168.1.100:8443 --evasion sandbox,debugger,vm")
-		return nil
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: generate <type> <os> <arch> [options]\n"+
+			"  Types: stager, shellcode, full\n"+
+			"  OS: linux, windows, darwin\n"+
+			"  Arch: amd64, 386, arm64\n"+
+			"  Options:\n"+
+			"    --output, -o <path>      Output file path\n"+
+			"    --callback, -c <url>     Callback URL (http://host:port or https://host:port)\n"+
+			"    --delay, -d <seconds>    Beacon delay in seconds (default: 30)\n"+
+			"    --jitter, -j <0.0-1.0>   Jitter percentage (default: 0.0)\n"+
+			"    --user-agent, -u <ua>    Custom user agent string\n"+
+			"    --protocol, -p <proto>   Protocol: http, https, mtls (default: http)\n"+
+			"    --no-encrypt            Disable encryption\n"+
+			"    --no-obfuscate          Disable obfuscation\n"+
+			"    --modules, -m <ids>      Comma-separated Empire module IDs to embed\n"+
+			"    --evasion <options>      Evasion features (comma-separated)\n"+
+			"                             Options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls\n"+
+			"  Examples:\n"+
+			"    generate full windows amd64 --callback http://192.168.1.100:8443\n"+
+			"    generate stager windows amd64 -o /tmp/implant.exe -c https://example.com:443\n"+
+			"    generate full windows amd64 --callback 192.168.1.100:8443 --delay 60 --jitter 0.3\n"+
+			"    generate full windows amd64 -c http://192.168.1.100:8443 --modules powershell/credentials/mimikatz\n"+
+			"    generate full windows amd64 -c http://192.168.1.100:8443 --evasion sandbox,debugger,vm")
 	}
 
 	payloadType := strings.ToLower(args[0])
@@ -1073,9 +1074,11 @@ func (is *InteractiveServer) handleUse(args []string) error {
 			fmt.Println("[*] Type 'back' to exit session")
 			return nil
 		}
-		fmt.Println("[!] Usage: use <session_id>")
-		fmt.Println("    Use 'sessions' to list session IDs")
-		return nil
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: use <session_id>\n"+
+			"  Use 'sessions' command to list all active sessions\n"+
+			"  Example: use sess-123\n"+
+			"  Note: You can use partial session IDs (first 8 characters)")
 	}
 
 	if args[0] == "back" {
