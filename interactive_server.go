@@ -49,6 +49,7 @@ type InteractiveServer struct {
 	taskQueue      *tasks.Queue // Shared task queue for all components
 	completer      *interactive.Completer
 	input          interactive.InputReader
+	syncCancel     context.CancelFunc // Context cancel function for syncSessions goroutine
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -397,7 +398,9 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 	}()
 
 	// Sync server sessions periodically
-	go is.syncSessions()
+	ctx, cancel := context.WithCancel(context.Background())
+	is.syncCancel = cancel
+	go is.syncSessionsWithContext(ctx)
 
 	// Give server time to start and check for immediate errors
 	select {
@@ -427,10 +430,13 @@ func (is *InteractiveServer) handleServerStatus() error {
 	}
 
 	fmt.Println("[*] Server status: RUNNING")
-	if is.server != nil {
-		// Try to get server address from config or server
-		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
+	if is.server == nil {
+		fmt.Println("[!] Warning: Server marked as running but server instance is nil")
+		return nil
 	}
+	
+	// Try to get server address from config or server
+	fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
 
 	// Show session count
 	sessions := is.server.GetSessions()
@@ -447,6 +453,12 @@ func (is *InteractiveServer) handleStopServer() error {
 	}
 
 	fmt.Println("[*] Stopping server...")
+
+	// Stop sync goroutine
+	if is.syncCancel != nil {
+		is.syncCancel()
+		is.syncCancel = nil
+	}
 
 	// Stop the server
 	if is.server != nil {
@@ -2266,6 +2278,80 @@ func (is *InteractiveServer) syncSessions() {
 					"type":       string(sessionType),
 					"transport":  transport,
 				})
+			}
+		}
+	}
+}
+
+// syncSessionsWithContext periodically syncs sessions from the server (with context cancellation)
+func (is *InteractiveServer) syncSessionsWithContext(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !is.isServerRunning() || is.server == nil {
+				continue
+			}
+
+			// Sync sessions from server to session manager
+			serverSessions := is.server.GetSessions()
+			for id, serverSession := range serverSessions {
+				// Check if session exists
+				if existingSession, exists := is.sessionMgr.GetSession(id); exists {
+					// Update existing session metadata
+					existingSession.UpdateLastSeen()
+
+					// Copy metadata from server session
+					if serverSession.Metadata != nil {
+						for key, value := range serverSession.Metadata {
+							existingSession.SetMetadata(key, value)
+						}
+					}
+
+					// Update RemoteAddr if changed
+					if serverSession.RemoteAddr != "" && existingSession.RemoteAddr != serverSession.RemoteAddr {
+						// Note: RemoteAddr isn't directly settable, but we can update via metadata
+						existingSession.SetMetadata("remote_addr", serverSession.RemoteAddr)
+					}
+				} else {
+					// Create new session in manager with full metadata
+					sessionType := core.SessionTypeBeacon
+					if upgraded, ok := serverSession.Metadata["upgraded"].(bool); ok && upgraded {
+						sessionType = core.SessionTypeInteractive
+					}
+
+					transport := "http"
+					if t, ok := serverSession.Metadata["transport"].(string); ok {
+						transport = t
+					}
+
+					session := core.NewSession(id, sessionType, transport)
+
+					// Copy metadata from server session
+					if serverSession.Metadata != nil {
+						for key, value := range serverSession.Metadata {
+							session.SetMetadata(key, value)
+						}
+					}
+
+					// Store remote address in metadata (since RemoteAddr isn't directly settable)
+					if serverSession.RemoteAddr != "" {
+						session.SetMetadata("remote_addr", serverSession.RemoteAddr)
+					}
+
+					is.sessionMgr.AddSession(session)
+
+					// Trigger reaction manager for new session
+					is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
+						"session_id": id,
+						"type":       string(sessionType),
+						"transport":  transport,
+					})
+				}
 			}
 		}
 	}
