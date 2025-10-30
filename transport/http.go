@@ -246,14 +246,36 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	var session *transportSession
 	
 	if sessionID != "" {
-		// Session ID provided - find existing session
+		// Session ID provided - find existing session by ID (highest priority)
 		session = ht.sessions[sessionID]
-		ht.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
+		if session != nil {
+			ht.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
+		} else {
+			ht.logger.Debug("Session ID provided: %s (not found in sessions map)", sessionID)
+		}
 	}
 	
+	// If session not found by ID, try to match by IP address (ignore port)
+	// This handles NAT/proxy scenarios where source port changes
+	if session == nil && sessionID != "" {
+		// Extract IP from RemoteAddr
+		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if clientIP != "" {
+			for id, existingSession := range ht.sessions {
+				existingIP, _, _ := net.SplitHostPort(existingSession.RemoteAddr)
+				if existingIP == clientIP {
+					// IP matches - use the existing session ID
+					session = existingSession
+					sessionID = id
+					ht.logger.Debug("Matched existing session by IP: %s -> %s (session ID: %s)", clientIP, id, sessionID)
+					break
+				}
+			}
+		}
+	}
+	
+	// If still no session, try matching by full RemoteAddr (legacy behavior)
 	if session == nil {
-		// No session ID or session not found - try to match by RemoteAddr
-		// This handles the case where implant lost its session ID but is reconnecting
 		for id, existingSession := range ht.sessions {
 			if existingSession.RemoteAddr == r.RemoteAddr {
 				session = existingSession
