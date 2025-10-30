@@ -490,7 +490,12 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 		Status:   "running",
 	}
 	
-	return database.SaveListenerJob(listenerJob)
+	if err := database.SaveListenerJob(listenerJob); err != nil {
+		return fmt.Errorf("failed to save listener job to database: %w\n"+
+			"  Note: Listener may still be running, but state won't persist", err)
+	}
+	
+	return nil
 }
 
 func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() error {
@@ -506,7 +511,7 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 	ctx := context.Background()
 	if err := httpTransport.Start(ctx, httpTransportConfig); err != nil {
 		is.logger.Error("Failed to start HTTP listener: %v", err)
-		return nil
+		return nil // Return nil func to indicate failure
 	}
 	
 	return func() error {
@@ -931,7 +936,10 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	// Set default output path if not provided
 	if outputPath == "" {
 		outputDir := "./implants"
-		os.MkdirAll(outputDir, 0755)
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create default output directory '%s': %w\n"+
+				"  Solution: Check directory permissions or specify a different path with --output", outputDir, err)
+		}
 		
 		ext := ".bin"
 		if osTarget == "windows" {

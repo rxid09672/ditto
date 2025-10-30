@@ -90,7 +90,10 @@ func (jm *JobManager) restoreJobs() {
 			
 			// Parse metadata
 			if dbJob.Metadata != "" {
-				json.Unmarshal([]byte(dbJob.Metadata), &job.Metadata)
+				if err := json.Unmarshal([]byte(dbJob.Metadata), &job.Metadata); err != nil {
+					// Log but continue - job metadata parsing failed
+					fmt.Printf("[!] Warning: Failed to parse job metadata for job %d: %v\n", dbJob.ID, err)
+				}
 			}
 			
 			jm.jobs[dbJob.ID] = job
@@ -122,7 +125,11 @@ func (jm *JobManager) AddJob(jobType JobType, name string, stopFunc func() error
 	jm.jobs[id] = job
 	
 	// Persist to database
-	metadataJSON, _ := json.Marshal(job.Metadata)
+	metadataJSON, err := json.Marshal(job.Metadata)
+	if err != nil {
+		// Log but continue - job is still created in memory
+		fmt.Printf("[!] Warning: Failed to marshal job metadata: %v\n", err)
+	}
 	dbJob := &database.Job{
 		ID:        id,
 		Type:      string(jobType),
@@ -131,7 +138,10 @@ func (jm *JobManager) AddJob(jobType JobType, name string, stopFunc func() error
 		Metadata:  string(metadataJSON),
 		CreatedAt: job.CreatedAt.Unix(),
 	}
-	database.SaveJob(dbJob)
+	if err := database.SaveJob(dbJob); err != nil {
+		// Log but continue - job is still created in memory
+		fmt.Printf("[!] Warning: Failed to save job to database: %v\n", err)
+	}
 	
 	return job
 }
@@ -150,7 +160,11 @@ func (jm *JobManager) StopJob(id uint64) error {
 		if err := job.StopFunc(); err != nil {
 			job.Status = JobStatusError
 			// Update database
-			metadataJSON, _ := json.Marshal(job.Metadata)
+			metadataJSON, err := json.Marshal(job.Metadata)
+			if err != nil {
+				// Log but continue
+				fmt.Printf("[!] Warning: Failed to marshal job metadata: %v\n", err)
+			}
 			dbJob := &database.Job{
 				ID:        id,
 				Type:      string(job.Type),
@@ -159,7 +173,9 @@ func (jm *JobManager) StopJob(id uint64) error {
 				Metadata:  string(metadataJSON),
 				CreatedAt: job.CreatedAt.Unix(),
 			}
-			database.SaveJob(dbJob)
+			if err := database.SaveJob(dbJob); err != nil {
+				fmt.Printf("[!] Warning: Failed to update job status in database: %v\n", err)
+			}
 			return err
 		}
 	}
@@ -168,7 +184,10 @@ func (jm *JobManager) StopJob(id uint64) error {
 	delete(jm.jobs, id)
 	
 	// Update database
-	database.DeleteJob(id)
+	if err := database.DeleteJob(id); err != nil {
+		// Log but continue - job is already stopped in memory
+		fmt.Printf("[!] Warning: Failed to delete job from database: %v\n", err)
+	}
 	
 	return nil
 }
