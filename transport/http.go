@@ -239,7 +239,7 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	
 	if sessionID != "" {
 		// Session ID provided - find existing session
-		session, _ = ht.sessions[sessionID]
+		session = ht.sessions[sessionID]
 		ht.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
 	}
 	
