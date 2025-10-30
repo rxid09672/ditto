@@ -1554,6 +1554,21 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			if err := is.executeGetSystem(sessionID); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			}
+		case "help", "h", "?":
+			fmt.Println("Session commands:")
+			fmt.Println("  shell <command>  - Execute shell command")
+			fmt.Println("  module <id>      - Execute module")
+			fmt.Println("  modules          - List available modules")
+			fmt.Println("  queue            - List pending tasks")
+			fmt.Println("  getsystem        - Elevate to SYSTEM privileges (Windows)")
+			fmt.Println("  migrate <pid>   - Migrate to another process")
+			fmt.Println("  grep <pattern> <path> - Search file contents")
+			fmt.Println("  head <path>      - Show first lines of file")
+			fmt.Println("  tail <path>      - Show last lines of file")
+			fmt.Println("  cat <path>       - Display file contents")
+			fmt.Println("  download <path> - Download file")
+			fmt.Println("  upload <local> <remote> - Upload file")
+			fmt.Println("  back, exit       - Exit session")
 		default:
 			// Default to shell command
 			taskID, err := is.executeShellCommand(sessionID, line)
