@@ -1731,7 +1731,15 @@ func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string,
 				// Display result
 				if resultMap, ok := task.Result.(map[string]interface{}); ok {
 					if resultValue, ok := resultMap["result"].(string); ok {
-						fmt.Println(resultValue)
+						// Check for common errors and provide helpful messages
+						if strings.Contains(resultValue, "Script must be run as administrator") {
+							fmt.Println("[!] Privilege escalation failed: Current session is not running as Administrator")
+							fmt.Println("    The 'getsystem' module requires Administrator privileges to elevate to SYSTEM")
+							fmt.Println("    Use 'shell whoami /groups' to check current privileges")
+							fmt.Println("    Try other privilege escalation modules if you're not admin yet")
+						} else {
+							fmt.Println(resultValue)
+						}
 					}
 				}
 				return
@@ -1887,6 +1895,8 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued getsystem module (task: %s)\n", taskID)
 	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
+	fmt.Printf("[*] Note: This requires the current session to already be running as Administrator\n")
+	fmt.Printf("[*] If you're not admin, try using other privilege escalation modules first\n")
 	fmt.Printf("[*] A new session should appear if successful\n")
 	
 	// Poll for result with extended timeout (30 seconds for getsystem)

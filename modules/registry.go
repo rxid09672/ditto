@@ -408,8 +408,12 @@ func substituteTemplate(template string, params map[string]string) string {
 	result := template
 	
 	// Handle {{ OUTPUT_FUNCTION }} - default to Out-String if not specified
+	// Check both OUTPUT_FUNCTION and OutputFunction (case variations)
 	if strings.Contains(result, "{{ OUTPUT_FUNCTION }}") {
 		outputFunc := params["OUTPUT_FUNCTION"]
+		if outputFunc == "" {
+			outputFunc = params["OutputFunction"] // Try camelCase variant
+		}
 		if outputFunc == "" {
 			outputFunc = "Out-String" // Default output function for PowerShell modules
 		}
