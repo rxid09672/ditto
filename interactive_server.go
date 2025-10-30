@@ -1708,10 +1708,10 @@ func (is *InteractiveServer) pollTaskResult(sessionID, taskID string) {
 		return
 	}
 	
-	// Poll for result with timeout (30 seconds)
-	timeout := 30 * time.Second
+	// Poll for result with timeout (10 seconds for faster response)
+	timeout := 10 * time.Second
 	start := time.Now()
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(200 * time.Millisecond) // Poll every 200ms for faster response
 	defer ticker.Stop()
 	
 	for {
