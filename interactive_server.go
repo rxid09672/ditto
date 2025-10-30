@@ -179,67 +179,113 @@ func (is *InteractiveServer) printHelp() {
 	help := `
 Available Commands:
   Server Management:
-    server, srv, s <addr>     Start C2 server (default: 0.0.0.0:8443)
-    stop-server, stop          Stop the running server
+    server, srv, s                  Start C2 server with default address (0.0.0.0:8443)
+    server <addr>                   Start C2 server with specified address
+    server start                   Start C2 server with default address
+    server start <addr>            Start C2 server with specified address
+    server stop                     Stop the running server
+    server status                   Show server status
+    stop-server, stop               Stop the running server (alias)
     
   Jobs & Listeners:
-    jobs, j                    List all active jobs/listeners
-    listen, l <type> <addr>    Start a listener (http, https, mtls)
-                               Example: listen http 0.0.0.0:8080
-    kill, k <job_id>           Stop a job by ID
+    jobs, j                         List all active jobs/listeners
+    listen, l <type> <addr>         Start a listener (http, https, mtls)
+                                    Example: listen http 0.0.0.0:8080
+    kill, k <job_id>                Stop a job by ID
     
   Pivoting:
-    port-forward, pf            Create port forward through session
-                               Usage: port-forward <session_id> <local> <remote>
-    socks5                      Start SOCKS5 proxy through session
-                               Usage: socks5 <session_id> <bind_addr> [user] [pass]
+    port-forward, pf                Create port forward through session
+                                    Usage: port-forward <session_id> <local> <remote>
+    socks5                          Start SOCKS5 proxy through session
+                                    Usage: socks5 <session_id> <bind_addr> [user] [pass]
     
   Loot Management:
-    loot list                  List all loot items
-    loot add <type> <name> <data>  Add loot item
-    loot get <id>              Get loot item details
-    loot remove <id>           Remove loot item
-    loot export                Export all loot as JSON
+    loot list                       List all loot items
+    loot add <type> <name> <data>   Add loot item
+    loot get <id>                   Get loot item details
+    loot remove <id>                Remove loot item
+    loot export                     Export all loot as JSON
     
   Persistence:
-    persist install <session>  Install persistence on session
-    persist remove <session>   Remove persistence from session
+    persist install <session>       Install persistence on session
+    persist remove <session>        Remove persistence from session
     
   Implants:
-    implants                   List all saved implant builds
-    implant <id>                Get implant build details by ID
+    implants                        List all saved implant builds
+    implant <id>                    Get implant build details by ID
     
          Implant Generation:
-           generate, gen, g           Generate implant
-                                      Usage: generate <type> <os> <arch> [options]
-                                      Options:
-                                        --callback, -c <url>     Callback URL (http://host:port)
-                                        --delay, -d <sec>        Beacon delay (default: 30)
-                                        --jitter, -j <0.0-1.0>   Jitter percentage
-                                        --output, -o <path>      Output file path
-                                      Example: generate full windows amd64 --callback http://192.168.1.100:8443
+           generate, gen, g              Generate implant
+                                         Usage: generate <type> <os> <arch> [options]
+                                         Options:
+                                           --callback, -c <url>     Callback URL (http://host:port)
+                                           --delay, -d <sec>        Beacon delay (default: 30)
+                                           --jitter, -j <0.0-1.0>   Jitter percentage
+                                           --output, -o <path>      Output file path
+                                         Example: generate full windows amd64 --callback http://192.168.1.100:8443
                                
   Session Management:
-    sessions, sess             List all active sessions
-    use, u <session_id>       Interact with a session
+    sessions, sess                  List all active sessions
+    use, u <session_id>            Interact with a session
     
   Utilities:
-    version, v                 Show version information
-    clear, cls                 Clear screen
-    exit, quit, q              Exit Ditto
+    version, v                      Show version information
+    clear, cls                      Clear screen
+    exit, quit, q                  Exit Ditto
 `
 	fmt.Println(help)
 }
 
 func (is *InteractiveServer) handleServer(args []string) error {
+	// Handle subcommands
+	if len(args) > 0 {
+		subcommand := args[0]
+		switch subcommand {
+		case "start":
+			// server start [address]
+			listenAddr := "0.0.0.0:8443"
+			if len(args) > 1 {
+				listenAddr = args[1]
+			}
+			return is.startServer(listenAddr)
+		case "stop":
+			return is.handleStopServer()
+		case "status", "info":
+			return is.handleServerStatus()
+		default:
+			// If it's not a subcommand, treat as address
+			// Check if it looks like an address (contains :)
+			if strings.Contains(subcommand, ":") {
+				return is.startServer(subcommand)
+			}
+			// Otherwise, show help
+			return fmt.Errorf("unknown server subcommand '%s'\n"+
+				"  Usage:\n"+
+				"    server                    Start server with default address (0.0.0.0:8443)\n"+
+				"    server <address>          Start server with specified address\n"+
+				"    server start              Start server with default address\n"+
+				"    server start <address>    Start server with specified address\n"+
+				"    server stop               Stop the running server\n"+
+				"    server status             Show server status\n"+
+				"  Examples:\n"+
+				"    server\n"+
+				"    server 0.0.0.0:8443\n"+
+				"    server start\n"+
+				"    server start 127.0.0.1:8080\n"+
+				"    server stop\n"+
+				"    server status", subcommand)
+		}
+	}
+	
+	// No arguments - start with default address
+	return is.startServer("0.0.0.0:8443")
+}
+
+// startServer starts the C2 server with the given address
+func (is *InteractiveServer) startServer(listenAddr string) error {
 	if is.isServerRunning() {
 		fmt.Println("[!] Server is already running")
 		return nil
-	}
-
-	listenAddr := "0.0.0.0:8443"
-	if len(args) > 0 {
-		listenAddr = args[0]
 	}
 
 	// Validate address format
@@ -291,6 +337,26 @@ func (is *InteractiveServer) handleServer(args []string) error {
 		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
 		return nil
 	}
+}
+
+// handleServerStatus shows the current server status
+func (is *InteractiveServer) handleServerStatus() error {
+	if !is.isServerRunning() {
+		fmt.Println("[*] Server status: NOT RUNNING")
+		return nil
+	}
+	
+	fmt.Println("[*] Server status: RUNNING")
+	if is.server != nil {
+		// Try to get server address from config or server
+		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
+	}
+	
+	// Show session count
+	sessions := is.server.GetSessions()
+	fmt.Printf("[*] Active sessions: %d\n", len(sessions))
+	
+	return nil
 }
 
 func (is *InteractiveServer) handleStopServer() error {

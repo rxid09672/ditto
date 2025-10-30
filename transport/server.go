@@ -83,10 +83,15 @@ func (s *Server) Start(listenAddr string) error {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		CipherSuites: []uint16{
+			// HTTP/2 required cipher suites (must include at least one)
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,   // HTTP/2 required
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, // HTTP/2 required
+			// Additional secure cipher suites
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		},
+		NextProtos: []string{"h2", "http/1.1"}, // Enable HTTP/2
 	}
 	
 	s.server = &http.Server{
