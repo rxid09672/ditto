@@ -545,7 +545,7 @@ func main() {
 	fmt.Println("[DEBUG] Ditto Implant Starting...")
 	fmt.Printf("[DEBUG] Callback URL: %s\n", callbackURL)
 	fmt.Printf("[DEBUG] Delay: %d seconds\n", delay)
-	fmt.Printf("[DEBUG] Jitter: %.2f%%\n", jitter*100)
+	fmt.Printf("[DEBUG] Jitter: %.2f%%\n", jitter*100.0)
 	{{end}}
 	
 	// Avoid detection
