@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -36,12 +37,19 @@ func (l *Logger) SetFile(path string) error {
 		l.file.Close()
 	}
 	
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+	
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 	
 	l.file = file
+	// Use multi-writer to write to both file and stdout
 	l.logger.SetOutput(file)
 	return nil
 }
@@ -76,11 +84,12 @@ func (l *Logger) log(level, format string, v ...interface{}) {
 	message := fmt.Sprintf(format, v...)
 	output := fmt.Sprintf("[%s] [%s] %s", timestamp, level, message)
 	
+	// Write to file if available
 	if l.file != nil {
 		l.logger.Print(output)
-	} else {
-		fmt.Println(output)
 	}
+	// Always write to stdout as well (for interactive debugging)
+	fmt.Println(output)
 }
 
 // Close closes the logger

