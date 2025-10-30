@@ -1895,8 +1895,8 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued getsystem module (task: %s)\n", taskID)
 	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
-	fmt.Printf("[*] Note: This requires the current session to already be running as Administrator\n")
-	fmt.Printf("[*] If you're not admin, try using other privilege escalation modules first\n")
+	fmt.Printf("[*] Note: This will attempt elevation even without admin privileges\n")
+	fmt.Printf("[*] If elevation fails, try other privesc modules (bypassuac, ask, etc.) first\n")
 	fmt.Printf("[*] A new session should appear if successful\n")
 	
 	// Poll for result with extended timeout (30 seconds for getsystem)

