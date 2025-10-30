@@ -50,6 +50,8 @@ type InteractiveServer struct {
 	completer      *interactive.Completer
 	input          interactive.InputReader
 	syncCancel     context.CancelFunc // Context cancel function for syncSessions goroutine
+	httpTransports map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
+	httpTransportsMu sync.RWMutex // Mutex for httpTransports map
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -74,6 +76,7 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 		reactionMgr:    reactions.NewReactionManager(logger),
 		taskQueue:      sharedTaskQueue,
 		completer:      completer,
+		httpTransports: make(map[string]*transport.HTTPTransport),
 	}
 
 	// Initialize readline input (fallback to simple input if readline fails)
@@ -593,6 +596,11 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() error {
 	httpTransport := transport.NewHTTPTransportWithTaskQueue(is.config, is.logger, is.taskQueue)
 
+	// Store transport reference for session syncing
+	is.httpTransportsMu.Lock()
+	is.httpTransports[addr] = httpTransport
+	is.httpTransportsMu.Unlock()
+
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
 		TLSEnabled:   false,
@@ -603,11 +611,17 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 	ctx := context.Background()
 	if err := httpTransport.Start(ctx, httpTransportConfig); err != nil {
 		is.logger.Error("Failed to start HTTP listener: %v", err)
+		is.httpTransportsMu.Lock()
+		delete(is.httpTransports, addr)
+		is.httpTransportsMu.Unlock()
 		return nil // Return nil func to indicate failure
 	}
 
 	return func() error {
 		is.logger.Info("Stopping HTTP listener: %s", jobName)
+		is.httpTransportsMu.Lock()
+		delete(is.httpTransports, addr)
+		is.httpTransportsMu.Unlock()
 		return httpTransport.Stop()
 	}
 }
@@ -665,6 +679,11 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 
 	httpTransport := transport.NewHTTPTransportWithTaskQueue(is.config, is.logger, is.taskQueue)
 
+	// Store transport reference for session syncing
+	is.httpTransportsMu.Lock()
+	is.httpTransports[addr] = httpTransport
+	is.httpTransportsMu.Unlock()
+
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
 		TLSEnabled:   true,
@@ -677,11 +696,17 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 	ctx := context.Background()
 	if err := httpTransport.Start(ctx, httpTransportConfig); err != nil {
 		is.logger.Error("Failed to start HTTPS listener: %v", err)
+		is.httpTransportsMu.Lock()
+		delete(is.httpTransports, addr)
+		is.httpTransportsMu.Unlock()
 		return nil
 	}
 
 	return func() error {
 		is.logger.Info("Stopping HTTPS listener: %s", jobName)
+		is.httpTransportsMu.Lock()
+		delete(is.httpTransports, addr)
+		is.httpTransportsMu.Unlock()
 		return httpTransport.Stop()
 	}
 }
@@ -2382,75 +2407,94 @@ func (is *InteractiveServer) syncSessionsWithContext(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !is.isServerRunning() || is.server == nil {
-				continue
-			}
-
-			// Sync sessions from server to session manager
-			serverSessions := is.server.GetSessions()
-			for id, serverSession := range serverSessions {
-				// Check if session exists
-				if existingSession, exists := is.sessionMgr.GetSession(id); exists {
-					// Update existing session metadata
-					existingSession.UpdateLastSeen()
-
-					// Copy metadata from server session
-					if serverSession.Metadata != nil {
-						for key, value := range serverSession.Metadata {
-							existingSession.SetMetadata(key, value)
-						}
-					}
-
-					// Update RemoteAddr if changed
-					if serverSession.RemoteAddr != "" && existingSession.RemoteAddr != serverSession.RemoteAddr {
-						// Note: RemoteAddr isn't directly settable, but we can update via metadata
-						existingSession.SetMetadata("remote_addr", serverSession.RemoteAddr)
-					}
-				} else {
-					// Create new session in manager with full metadata
-					sessionType := core.SessionTypeBeacon
-					if upgraded, ok := serverSession.Metadata["upgraded"].(bool); ok && upgraded {
-						sessionType = core.SessionTypeInteractive
-					}
-
-					transport := "http"
-					if t, ok := serverSession.Metadata["transport"].(string); ok {
-						transport = t
-					}
-
-					session := core.NewSession(id, sessionType, transport)
-					
-					// Set RemoteAddr if available - need to use reflection or direct field access
-					// Since RemoteAddr is a field, we can use a helper method
-					if serverSession.RemoteAddr != "" {
-						// Store in metadata for now, we'll enhance Session struct later if needed
-						session.SetMetadata("remote_addr", serverSession.RemoteAddr)
-					}
-					
-					// Copy metadata from server session
-					if serverSession.Metadata != nil {
-						for key, value := range serverSession.Metadata {
-							session.SetMetadata(key, value)
-						}
-					}
-
-					is.sessionMgr.AddSession(session)
-
-					// Print notification about new session (without interrupting prompt)
-					// Use fmt.Printf with newline to ensure it appears properly
-					fmt.Printf("\n[+] New session: %s (%s) from %s\n", shortID(id), sessionType, serverSession.RemoteAddr)
-					if is.input != nil {
-						is.input.SetPrompt(getPrompt(is.currentSession))
-					}
-
-					// Trigger reaction manager for new session
-					is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
-						"session_id": id,
-						"type":       string(sessionType),
-						"transport":  transport,
-					})
+			// Sync sessions from main server to session manager
+			if is.server != nil {
+				serverSessions := is.server.GetSessions()
+				for id, serverSession := range serverSessions {
+					is.syncSessionToManager(id, serverSession, "main")
 				}
 			}
+			
+			// Sync sessions from HTTP transports to session manager
+			is.httpTransportsMu.RLock()
+			for addr, httpTransport := range is.httpTransports {
+				httpSessions := httpTransport.GetSessions()
+				for id, httpSession := range httpSessions {
+					is.syncSessionToManager(id, httpSession, fmt.Sprintf("http:%s", addr))
+				}
+			}
+			is.httpTransportsMu.RUnlock()
 		}
+	}
+}
+
+// syncSessionToManager syncs a single session from server/transport to session manager
+func (is *InteractiveServer) syncSessionToManager(id string, serverSession *transport.Session, source string) {
+	// Check if session exists
+	if existingSession, exists := is.sessionMgr.GetSession(id); exists {
+		// Update existing session metadata
+		existingSession.UpdateLastSeen()
+
+		// Copy metadata from server session
+		if serverSession.Metadata != nil {
+			for key, value := range serverSession.Metadata {
+				existingSession.SetMetadata(key, value)
+			}
+		}
+
+		// Update RemoteAddr if changed
+		if serverSession.RemoteAddr != "" && existingSession.RemoteAddr != serverSession.RemoteAddr {
+			// Store in metadata since RemoteAddr isn't directly settable
+			existingSession.SetMetadata("remote_addr", serverSession.RemoteAddr)
+		}
+		
+		// Update transport source
+		existingSession.SetMetadata("source", source)
+	} else {
+		// Create new session in manager with full metadata
+		sessionType := core.SessionTypeBeacon
+		if upgraded, ok := serverSession.Metadata["upgraded"].(bool); ok && upgraded {
+			sessionType = core.SessionTypeInteractive
+		}
+
+		transportType := "http"
+		if t, ok := serverSession.Metadata["transport"].(string); ok {
+			transportType = t
+		} else if strings.HasPrefix(source, "http:") {
+			transportType = "http"
+		}
+
+		session := core.NewSession(id, sessionType, transportType)
+		
+		// Store remote address in metadata (since RemoteAddr isn't directly settable)
+		if serverSession.RemoteAddr != "" {
+			session.SetMetadata("remote_addr", serverSession.RemoteAddr)
+		}
+		
+		// Copy metadata from server session
+		if serverSession.Metadata != nil {
+			for key, value := range serverSession.Metadata {
+				session.SetMetadata(key, value)
+			}
+		}
+		
+		// Store source
+		session.SetMetadata("source", source)
+
+		is.sessionMgr.AddSession(session)
+
+		// Print notification about new session (without interrupting prompt)
+		// Use fmt.Printf with newline to ensure it appears properly
+		fmt.Printf("\n[+] New session: %s (%s) from %s\n", shortID(id), sessionType, serverSession.RemoteAddr)
+		if is.input != nil {
+			is.input.SetPrompt(getPrompt(is.currentSession))
+		}
+
+		// Trigger reaction manager for new session
+		is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
+			"session_id": id,
+			"type":       string(sessionType),
+			"transport":  transportType,
+		})
 	}
 }

