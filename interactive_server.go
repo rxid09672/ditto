@@ -114,7 +114,7 @@ func (is *InteractiveServer) Run() {
 			is.input.Close()
 		}
 	}()
-	
+
 	banner.PrintDittoBanner()
 	fmt.Println("Ditto Interactive Server")
 	fmt.Println("Type 'help' for available commands")
@@ -130,7 +130,7 @@ func (is *InteractiveServer) Run() {
 			fmt.Printf("[!] Error: input handler not initialized\n")
 			break
 		}
-		
+
 		is.input.SetPrompt(prompt)
 
 		line, err := is.input.ReadLine()
@@ -163,10 +163,10 @@ func (is *InteractiveServer) Run() {
 			fmt.Printf("[!] Unknown command: %s\nType 'help' for available commands.\n", command)
 			continue
 		}
-		
+
 		// Visual feedback: highlight valid command (optional - can be enabled for verbose mode)
 		// For now, we validate silently, but the completer provides tab completion hints
-		
+
 		if err := is.handleCommand(command, args); err != nil {
 			fmt.Printf("[!] Error: %v\n", err)
 		}
@@ -211,7 +211,32 @@ func (is *InteractiveServer) handleCommand(cmd string, args []string) error {
 		fmt.Print("\033[H\033[2J")
 		banner.PrintDittoBanner()
 	case "modules":
-		is.moduleRegistry.ListModules()
+		allModules := is.moduleRegistry.ListAllModules()
+		if len(allModules) == 0 {
+			fmt.Println("[*] No modules loaded")
+			fmt.Println("    Modules are loaded automatically from modules/ directory")
+			return nil
+		}
+
+		fmt.Printf("[*] Available modules (%d total):\n\n", len(allModules))
+
+		// Group by category
+		byCategory := make(map[string][]*modules.EmpireModule)
+		for _, mod := range allModules {
+			category := string(mod.Category)
+			byCategory[category] = append(byCategory[category], mod)
+		}
+
+		// Display grouped by category
+		for category, mods := range byCategory {
+			fmt.Printf("  %s:\n", category)
+			for _, mod := range mods {
+				fmt.Printf("    %s - %s\n", mod.ID, mod.Name)
+			}
+			fmt.Println()
+		}
+
+		fmt.Println("[*] Use 'module <id>' in a session to execute a module")
 	case "sync-sessions":
 		is.syncSessions()
 		fmt.Println("[+] Sessions synced from server")
