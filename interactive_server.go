@@ -1889,8 +1889,8 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
 	fmt.Printf("[*] A new session should appear if successful\n")
 	
-	// Poll for result with extended timeout (30 minutes for getsystem)
-	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Minute)
+	// Poll for result with extended timeout (30 seconds for getsystem)
+	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
 	return nil
 }
 
