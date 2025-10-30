@@ -715,9 +715,36 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		return nil
 	}
 
-	payloadType := args[0]
-	osTarget := args[1]
-	arch := args[2]
+	payloadType := strings.ToLower(args[0])
+	osTarget := strings.ToLower(args[1])
+	arch := strings.ToLower(args[2])
+	
+	// Validate payload type
+	validTypes := map[string]bool{"stager": true, "shellcode": true, "full": true}
+	if !validTypes[payloadType] {
+		return fmt.Errorf("invalid payload type '%s'\n"+
+			"  Valid types: stager, shellcode, full\n"+
+			"  Usage: generate <type> <os> <arch> [options]\n"+
+			"  Example: generate full windows amd64 --callback http://192.168.1.100:8443", args[0])
+	}
+	
+	// Validate OS
+	validOS := map[string]bool{"linux": true, "windows": true, "darwin": true}
+	if !validOS[osTarget] {
+		return fmt.Errorf("invalid OS '%s'\n"+
+			"  Valid OS: linux, windows, darwin\n"+
+			"  Usage: generate <type> <os> <arch> [options]\n"+
+			"  Example: generate full windows amd64 --callback http://192.168.1.100:8443", args[1])
+	}
+	
+	// Validate architecture
+	validArch := map[string]bool{"amd64": true, "386": true, "arm64": true}
+	if !validArch[arch] {
+		return fmt.Errorf("invalid architecture '%s'\n"+
+			"  Valid architectures: amd64, 386, arm64\n"+
+			"  Usage: generate <type> <os> <arch> [options]\n"+
+			"  Example: generate full windows amd64 --callback http://192.168.1.100:8443", args[2])
+	}
 	
 	// Parse flags
 	var outputPath string
@@ -736,7 +763,16 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		case "--output", "-o":
 			if i+1 < len(args) {
 				outputPath = args[i+1]
+				if outputPath == "" {
+					return fmt.Errorf("output path cannot be empty\n"+
+						"  Usage: --output <path>\n"+
+						"  Example: --output /tmp/implant.exe")
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --output flag\n"+
+					"  Usage: --output <path>\n"+
+					"  Example: --output /tmp/implant.exe")
 			}
 		case "--callback", "-c":
 			if i+1 < len(args) {
@@ -756,33 +792,95 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 			}
 		case "--delay", "-d":
 			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &delay)
+				if _, err := fmt.Sscanf(args[i+1], "%d", &delay); err != nil {
+					return fmt.Errorf("invalid delay value '%s': must be a number\n"+
+						"  Usage: --delay <seconds>\n"+
+						"  Example: --delay 60", args[i+1])
+				}
+				if delay < 0 {
+					return fmt.Errorf("delay must be >= 0, got %d", delay)
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --delay flag\n"+
+					"  Usage: --delay <seconds>\n"+
+					"  Example: --delay 60")
 			}
 		case "--jitter", "-j":
 			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%f", &jitter)
+				if _, err := fmt.Sscanf(args[i+1], "%f", &jitter); err != nil {
+					return fmt.Errorf("invalid jitter value '%s': must be a number\n"+
+						"  Usage: --jitter <0.0-1.0>\n"+
+						"  Example: --jitter 0.3", args[i+1])
+				}
+				if jitter < 0 || jitter > 1 {
+					return fmt.Errorf("jitter must be between 0.0 and 1.0, got %.2f", jitter)
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --jitter flag\n"+
+					"  Usage: --jitter <0.0-1.0>\n"+
+					"  Example: --jitter 0.3")
 			}
 		case "--user-agent", "-u":
 			if i+1 < len(args) {
 				userAgent = args[i+1]
+				if userAgent == "" {
+					return fmt.Errorf("user agent cannot be empty\n"+
+						"  Usage: --user-agent <string>\n"+
+						"  Example: --user-agent 'Mozilla/5.0'")
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --user-agent flag\n"+
+					"  Usage: --user-agent <string>\n"+
+					"  Example: --user-agent 'Mozilla/5.0'")
 			}
 		case "--protocol", "-p":
 			if i+1 < len(args) {
-				protocol = args[i+1]
+				protocol = strings.ToLower(args[i+1])
+				validProtocols := map[string]bool{"http": true, "https": true, "mtls": true}
+				if !validProtocols[protocol] {
+					return fmt.Errorf("invalid protocol '%s'\n"+
+						"  Valid protocols: http, https, mtls\n"+
+						"  Usage: --protocol <protocol>\n"+
+						"  Example: --protocol https", args[i+1])
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --protocol flag\n"+
+					"  Usage: --protocol <http|https|mtls>\n"+
+					"  Example: --protocol https")
 			}
 		case "--modules", "-m":
 			if i+1 < len(args) {
 				modulesStr = args[i+1]
+				if modulesStr == "" {
+					return fmt.Errorf("modules list cannot be empty\n"+
+						"  Usage: --modules <id1,id2,...>\n"+
+						"  Example: --modules powershell/credentials/mimikatz")
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --modules flag\n"+
+					"  Usage: --modules <id1,id2,...>\n"+
+					"  Example: --modules powershell/credentials/mimikatz")
 			}
 		case "--evasion":
 			if i+1 < len(args) {
 				evasionStr = args[i+1]
+				if evasionStr == "" {
+					return fmt.Errorf("evasion options cannot be empty\n"+
+						"  Usage: --evasion <option1,option2,...>\n"+
+						"  Valid options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls\n"+
+						"  Example: --evasion sandbox,debugger,vm")
+				}
 				i++
+			} else {
+				return fmt.Errorf("missing value for --evasion flag\n"+
+					"  Usage: --evasion <option1,option2,...>\n"+
+					"  Valid options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls\n"+
+					"  Example: --evasion sandbox,debugger,vm")
 			}
 		case "--no-encrypt":
 			encrypt = false
@@ -991,9 +1089,17 @@ func (is *InteractiveServer) handleUse(args []string) error {
 	}
 
 	sessionID := args[0]
+	if sessionID == "" {
+		return fmt.Errorf("session ID cannot be empty\n"+
+			"  Usage: use <session_id>\n"+
+			"  Use 'sessions' command to list all active sessions")
+	}
+	
 	session, ok := is.sessionMgr.GetSession(sessionID)
 	if !ok {
-		return fmt.Errorf("session not found: %s", sessionID)
+		return fmt.Errorf("session not found: %s\n"+
+			"  Use 'sessions' command to list all active sessions\n"+
+			"  Note: You can use partial session IDs (first 8 characters)", sessionID)
 	}
 
 	is.currentSession = sessionID
@@ -1269,39 +1375,40 @@ func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path stri
 }
 
 func (is *InteractiveServer) handlePortForward(args []string) error {
-	// Check if we have enough args - need at least 2 (local and remote)
-	// If session is already set, we can use it; otherwise need 3 args
-	if is.currentSession == "" && len(args) < 3 {
-		fmt.Println("[!] Usage: port-forward <session_id> <local_addr> <remote_addr>")
-		fmt.Println("    Example: port-forward sess-123 127.0.0.1:8080 192.168.1.100:3389")
-		return nil
-	}
-
-	if len(args) < 2 {
-		fmt.Println("[!] Usage: port-forward <session_id> <local_addr> <remote_addr>")
-		fmt.Println("    Or: port-forward <local_addr> <remote_addr> (if session is already set)")
-		return nil
-	}
-
 	var sessionID, localAddr, remoteAddr string
 	
+	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" {
-		// Use current session
-		sessionID = is.currentSession
-		if len(args) >= 2 {
-			localAddr = args[0]
-			remoteAddr = args[1]
-		} else {
-			return fmt.Errorf("need local and remote addresses")
+		// Use current session - need local and remote addresses
+		if len(args) < 2 {
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage (with active session): port-forward <local_addr> <remote_addr>\n"+
+				"  Usage (with session ID): port-forward <session_id> <local_addr> <remote_addr>\n"+
+				"  Expected format: <host>:<port>\n"+
+				"  Example: port-forward 127.0.0.1:8080 192.168.1.100:3389\n"+
+				"  Example: port-forward sess-123 127.0.0.1:8080 192.168.1.100:3389")
 		}
+		sessionID = is.currentSession
+		localAddr = args[0]
+		remoteAddr = args[1]
 	} else {
-		// Session ID provided in args
-		if len(args) >= 3 {
-			sessionID = args[0]
-			localAddr = args[1]
-			remoteAddr = args[2]
-		} else {
-			return fmt.Errorf("need session_id, local_addr, and remote_addr")
+		// Session ID must be provided - need session_id, local, and remote
+		if len(args) < 3 {
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage: port-forward <session_id> <local_addr> <remote_addr>\n"+
+				"  Expected format: <host>:<port>\n"+
+				"  Example: port-forward sess-123 127.0.0.1:8080 192.168.1.100:3389\n"+
+				"  Note: If you're in a session, you can omit the session_id")
+		}
+		sessionID = args[0]
+		localAddr = args[1]
+		remoteAddr = args[2]
+		
+		// Validate session exists
+		if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+			return fmt.Errorf("session not found: %s\n"+
+				"  Use 'sessions' command to list all active sessions\n"+
+				"  Note: You can use partial session IDs (first 8 characters)", sessionID)
 		}
 	}
 
@@ -1355,23 +1462,19 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 }
 
 func (is *InteractiveServer) handleSOCKS5(args []string) error {
-	// Check if we have enough args
-	if is.currentSession == "" && len(args) < 2 {
-		fmt.Println("[!] Usage: socks5 <session_id> <bind_addr> [username] [password]")
-		fmt.Println("    Example: socks5 sess-123 127.0.0.1:1080")
-		return nil
-	}
-
-	if len(args) < 1 {
-		fmt.Println("[!] Usage: socks5 <session_id> <bind_addr> [username] [password]")
-		fmt.Println("    Or: socks5 <bind_addr> [username] [password] (if session is already set)")
-		return nil
-	}
-
 	var sessionID, bindAddr, username, password string
 	
+	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" {
-		// Use current session
+		// Use current session - need bind address
+		if len(args) < 1 {
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage (with active session): socks5 <bind_addr> [username] [password]\n"+
+				"  Usage (with session ID): socks5 <session_id> <bind_addr> [username] [password]\n"+
+				"  Expected format: <host>:<port>\n"+
+				"  Example: socks5 127.0.0.1:1080\n"+
+				"  Example: socks5 sess-123 127.0.0.1:1080 user pass")
+		}
 		sessionID = is.currentSession
 		bindAddr = args[0]
 		if len(args) >= 2 {
@@ -1381,18 +1484,29 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 			password = args[2]
 		}
 	} else {
-		// Session ID provided in args
-		if len(args) >= 2 {
-			sessionID = args[0]
-			bindAddr = args[1]
-			if len(args) >= 3 {
-				username = args[2]
-			}
-			if len(args) >= 4 {
-				password = args[3]
-			}
-		} else {
-			return fmt.Errorf("need session_id and bind_addr")
+		// Session ID must be provided - need session_id and bind_addr
+		if len(args) < 2 {
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage: socks5 <session_id> <bind_addr> [username] [password]\n"+
+				"  Expected format: <host>:<port>\n"+
+				"  Example: socks5 sess-123 127.0.0.1:1080\n"+
+				"  Example: socks5 sess-123 127.0.0.1:1080 user pass\n"+
+				"  Note: If you're in a session, you can omit the session_id")
+		}
+		sessionID = args[0]
+		bindAddr = args[1]
+		if len(args) >= 3 {
+			username = args[2]
+		}
+		if len(args) >= 4 {
+			password = args[3]
+		}
+		
+		// Validate session exists
+		if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+			return fmt.Errorf("session not found: %s\n"+
+				"  Use 'sessions' command to list all active sessions\n"+
+				"  Note: You can use partial session IDs (first 8 characters)", sessionID)
 		}
 	}
 
@@ -1449,33 +1563,55 @@ func (is *InteractiveServer) handleLoot(args []string) error {
 		return is.printLoot()
 	case "add":
 		if len(args) < 3 {
-			fmt.Println("[!] Usage: loot add <type> <name> <data>")
-			fmt.Println("    Types: credential, file, token, hash")
-			return nil
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage: loot add <type> <name> <data>\n"+
+				"  Valid types: credential, file, token, hash\n"+
+				"  Example: loot add credential admin_pass 'password123'\n"+
+				"  Example: loot add file /etc/passwd 'file contents here'")
 		}
-		lootType := loot.LootType(args[1])
+		lootTypeStr := strings.ToLower(args[1])
+		validLootTypes := map[string]bool{"credential": true, "file": true, "token": true, "hash": true}
+		if !validLootTypes[lootTypeStr] {
+			return fmt.Errorf("invalid loot type '%s'\n"+
+				"  Valid types: credential, file, token, hash\n"+
+				"  Usage: loot add <type> <name> <data>\n"+
+				"  Example: loot add credential admin_pass 'password123'", args[1])
+		}
+		lootType := loot.LootType(lootTypeStr)
 		name := args[2]
 		data := []byte(strings.Join(args[3:], " "))
 		if len(args) == 3 {
 			data = []byte(name)
 		}
+		if name == "" {
+			return fmt.Errorf("loot name cannot be empty\n"+
+				"  Usage: loot add <type> <name> <data>\n"+
+				"  Example: loot add credential admin_pass 'password123'")
+		}
 		id, err := is.lootManager.AddLoot(lootType, name, data, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to add loot: %w", err)
 		}
 		fmt.Printf("[+] Added loot: %s\n", id)
 	case "get":
 		if len(args) < 2 {
-			fmt.Println("[!] Usage: loot get <id>")
-			return nil
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage: loot get <id>\n"+
+				"  Use 'loot list' to see all loot items with their IDs")
+		}
+		if args[1] == "" {
+			return fmt.Errorf("loot ID cannot be empty\n"+
+				"  Usage: loot get <id>\n"+
+				"  Use 'loot list' to see all loot items with their IDs")
 		}
 		item, err := is.lootManager.GetLoot(args[1])
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get loot: %w\n"+
+				"  Use 'loot list' to see all loot items with their IDs", err)
 		}
 		data, err := is.lootManager.DecryptLoot(item)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to decrypt loot: %w", err)
 		}
 		fmt.Printf("[+] Loot %s:\n", item.ID)
 		fmt.Printf("    Type: %s\n", item.Type)
@@ -1483,11 +1619,18 @@ func (is *InteractiveServer) handleLoot(args []string) error {
 		fmt.Printf("    Data: %s\n", string(data))
 	case "remove", "rm":
 		if len(args) < 2 {
-			fmt.Println("[!] Usage: loot remove <id>")
-			return nil
+			return fmt.Errorf("insufficient arguments\n"+
+				"  Usage: loot remove <id>\n"+
+				"  Use 'loot list' to see all loot items with their IDs")
+		}
+		if args[1] == "" {
+			return fmt.Errorf("loot ID cannot be empty\n"+
+				"  Usage: loot remove <id>\n"+
+				"  Use 'loot list' to see all loot items with their IDs")
 		}
 		if err := is.lootManager.RemoveLoot(args[1]); err != nil {
-			return err
+			return fmt.Errorf("failed to remove loot: %w\n"+
+				"  Use 'loot list' to see all loot items with their IDs", err)
 		}
 		fmt.Printf("[+] Removed loot: %s\n", args[1])
 	case "export":
@@ -1497,7 +1640,22 @@ func (is *InteractiveServer) handleLoot(args []string) error {
 		}
 		fmt.Println(string(data))
 	default:
-		fmt.Println("[!] Usage: loot [list|add|get|remove|export]")
+		return fmt.Errorf("unknown loot subcommand '%s'\n"+
+			"  Usage: loot [list|add|get|remove|export]\n"+
+			"  Commands:\n"+
+			"    list, ls     - List all loot items\n"+
+			"    add          - Add a new loot item\n"+
+			"                   Usage: loot add <type> <name> <data>\n"+
+			"    get          - Get loot item details\n"+
+			"                   Usage: loot get <id>\n"+
+			"    remove, rm   - Remove a loot item\n"+
+			"                   Usage: loot remove <id>\n"+
+			"    export       - Export all loot as JSON\n"+
+			"  Examples:\n"+
+			"    loot list\n"+
+			"    loot add credential admin_pass 'password123'\n"+
+			"    loot get loot-123\n"+
+			"    loot remove loot-123", args[0])
 	}
 
 	return nil
@@ -1528,23 +1686,53 @@ func (is *InteractiveServer) printLoot() error {
 }
 
 func (is *InteractiveServer) handlePersistence(args []string) error {
-	if len(args) < 2 {
-		fmt.Println("[!] Usage: persist <action> <session_id> [options]")
-		fmt.Println("    Actions: install, remove")
-		fmt.Println("    Example: persist install sess-123")
-		return nil
+	if len(args) == 0 {
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: persist <action> <session_id>\n"+
+			"  Actions: install, remove\n"+
+			"  Example: persist install sess-123\n"+
+			"  Note: If you're in a session, you can omit the session_id")
 	}
 
-	action := args[0]
-	sessionID := args[1]
-
+	var action, sessionID string
+	
+	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" && len(args) == 1 {
+		// Use current session - only action provided
+		action = strings.ToLower(args[0])
 		sessionID = is.currentSession
-		action = args[0]
+	} else if len(args) >= 2 {
+		// Session ID provided
+		action = strings.ToLower(args[0])
+		sessionID = args[1]
+	} else {
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: persist <action> <session_id>\n"+
+			"  Actions: install, remove\n"+
+			"  Example: persist install sess-123\n"+
+			"  Note: If you're in a session, you can use: persist install")
+	}
+
+	// Validate action
+	validActions := map[string]bool{"install": true, "remove": true}
+	if !validActions[action] {
+		return fmt.Errorf("invalid action '%s'\n"+
+			"  Valid actions: install, remove\n"+
+			"  Usage: persist <action> <session_id>\n"+
+			"  Example: persist install sess-123", args[0])
+	}
+	
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Use 'sessions' command to list all active sessions\n"+
+			"  Note: You can use partial session IDs (first 8 characters)", sessionID)
 	}
 
 	if !is.isServerRunning() || is.server == nil {
-		return fmt.Errorf("server not running")
+		return fmt.Errorf("server is not running - you must start the C2 server first\n"+
+			"  Usage: server [<address>]\n"+
+			"  Example: server 0.0.0.0:8443")
 	}
 
 	switch action {
@@ -1571,8 +1759,6 @@ func (is *InteractiveServer) handlePersistence(args []string) error {
 		}
 		is.server.EnqueueTask(task)
 		fmt.Printf("[+] Queued persistence removal for session %s\n", shortID(sessionID))
-	default:
-		return fmt.Errorf("unknown action: %s", action)
 	}
 
 	return nil
@@ -1611,14 +1797,21 @@ func (is *InteractiveServer) handleImplants(args []string) error {
 
 func (is *InteractiveServer) handleGetImplant(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("[!] Usage: implant <id>")
-		fmt.Println("    Use 'implants' to list implant IDs")
-		return nil
+		return fmt.Errorf("insufficient arguments\n"+
+			"  Usage: implant <id>\n"+
+			"  Use 'implants' command to list all saved implants with their IDs")
+	}
+
+	if args[0] == "" {
+		return fmt.Errorf("implant ID cannot be empty\n"+
+			"  Usage: implant <id>\n"+
+			"  Use 'implants' command to list all saved implants with their IDs")
 	}
 
 	build, err := database.GetImplantBuildByID(args[0])
 	if err != nil {
-		return fmt.Errorf("failed to retrieve implant: %w", err)
+		return fmt.Errorf("failed to retrieve implant: %w\n"+
+			"  Use 'implants' command to list all saved implants with their IDs", err)
 	}
 
 	fmt.Printf("[+] Implant Build Details:\n")
