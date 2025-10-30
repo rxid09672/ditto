@@ -9,7 +9,6 @@ bin/
 *.test
 
 # Test files and coverage reports
-*_test.go
 test.sh
 coverage.out
 coverage.html
