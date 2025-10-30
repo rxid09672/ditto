@@ -398,6 +398,11 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 	}()
 
 	// Sync server sessions periodically
+	// Cancel any existing sync goroutine first
+	if is.syncCancel != nil {
+		is.syncCancel()
+		is.syncCancel = nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	is.syncCancel = cancel
 	go is.syncSessionsWithContext(ctx)
@@ -1244,7 +1249,19 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 		if is.currentSession != sessionID {
 			break // Session changed
 		}
-
+		
+		if sessionInput == nil {
+			fmt.Printf("[!] Error: session input handler not initialized\n")
+			break
+		}
+		
+		// Validate session still exists before executing commands
+		if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+			fmt.Printf("[!] Session %s no longer exists\n", shortID(sessionID))
+			is.currentSession = ""
+			break
+		}
+		
 		line, err := sessionInput.ReadLine()
 		if err != nil {
 			if err == io.EOF {
@@ -1446,6 +1463,12 @@ func (is *InteractiveServer) executeShellCommand(sessionID, command string) erro
 			"  Example: shell whoami")
 	}
 
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
 	// Queue task for session
 	task := &tasks.Task{
 		ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
@@ -1471,6 +1494,12 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 			"  Usage: module <module_id> [args...]\n" +
 			"  Example: module powershell/credentials/mimikatz\n" +
 			"  Use 'modules' command to list available modules")
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
 	module, ok := is.moduleRegistry.GetModule(moduleID)
@@ -1517,6 +1546,12 @@ func (is *InteractiveServer) downloadFile(sessionID, remotePath string) error {
 			"  Example: download C:\\Windows\\System32\\config\\sam")
 	}
 
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
 	task := &tasks.Task{
 		ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
 		Type:    "download",
@@ -1556,6 +1591,12 @@ func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string)
 			"  Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe", localPath)
 	}
 
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
 	data, err := os.ReadFile(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to read file '%s': %w\n"+
@@ -1586,6 +1627,12 @@ func (is *InteractiveServer) migrateProcess(sessionID string, pid int) error {
 		return fmt.Errorf("invalid process ID: %d (must be positive)\n"+
 			"  Usage: migrate <pid>\n"+
 			"  Example: migrate 1234", pid)
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
 	task := &tasks.Task{
@@ -1621,6 +1668,12 @@ func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path stri
 		return fmt.Errorf("path cannot be empty for %s operation\n"+
 			"  Usage: %s\n"+
 			"  Example: %s", op, usage, example)
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
 	task := &tasks.Task{
