@@ -1720,7 +1720,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 	// Use Empire's Get-System module
 	moduleID := "powershell/privesc/getsystem"
-	_, ok := is.moduleRegistry.GetModule(moduleID)
+	_, ok = is.moduleRegistry.GetModule(moduleID)
 	if !ok {
 		return fmt.Errorf("getsystem module not found: %s\n"+
 			"  Ensure modules are loaded from modules/empire directory", moduleID)
