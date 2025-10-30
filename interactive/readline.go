@@ -32,8 +32,8 @@ func getHistoryPath() string {
 	return "/tmp/ditto_history"
 }
 
-// getSessionHistoryPath returns a path for session-specific history file
-func getSessionHistoryPath() string {
+// GetSessionHistoryPath returns a path for session-specific history file
+func GetSessionHistoryPath() string {
 	// Try to use user's home directory
 	if u, err := user.Current(); err == nil {
 		historyDir := filepath.Join(u.HomeDir, ".ditto")
