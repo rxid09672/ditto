@@ -1,9 +1,12 @@
 package jobs
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ditto/ditto/database"
 )
 
 // JobType represents the type of job
@@ -44,13 +47,54 @@ type JobManager struct {
 
 // NewJobManager creates a new job manager
 func NewJobManager() *JobManager {
-	return &JobManager{
+	jm := &JobManager{
 		jobs:   make(map[uint64]*Job),
 		nextID: 1,
 	}
+	
+	// Restore jobs from database
+	jm.restoreJobs()
+	
+	return jm
 }
 
-// AddJob adds a new job
+// restoreJobs restores jobs from database on startup
+func (jm *JobManager) restoreJobs() {
+	dbJobs, err := database.GetJobs()
+	if err != nil {
+		// Database might not exist yet, that's okay
+		return
+	}
+	
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+	
+	for _, dbJob := range dbJobs {
+		if dbJob.Status == "running" {
+			// Job was running, restore it (but mark as stopped since we can't restore StopFunc)
+			job := &Job{
+				ID:        dbJob.ID,
+				Type:      JobType(dbJob.Type),
+				Name:      dbJob.Name,
+				Status:    JobStatusStopped, // Can't restore running state
+				CreatedAt: time.Unix(dbJob.CreatedAt, 0),
+				Metadata:  make(map[string]interface{}),
+			}
+			
+			// Parse metadata
+			if dbJob.Metadata != "" {
+				json.Unmarshal([]byte(dbJob.Metadata), &job.Metadata)
+			}
+			
+			jm.jobs[dbJob.ID] = job
+			if dbJob.ID >= jm.nextID {
+				jm.nextID = dbJob.ID + 1
+			}
+		}
+	}
+}
+
+// AddJob adds a new job and persists it to database
 func (jm *JobManager) AddJob(jobType JobType, name string, stopFunc func() error) *Job {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -69,10 +113,23 @@ func (jm *JobManager) AddJob(jobType JobType, name string, stopFunc func() error
 	}
 	
 	jm.jobs[id] = job
+	
+	// Persist to database
+	metadataJSON, _ := json.Marshal(job.Metadata)
+	dbJob := &database.Job{
+		ID:        id,
+		Type:      string(jobType),
+		Name:      name,
+		Status:    "running",
+		Metadata:  string(metadataJSON),
+		CreatedAt: job.CreatedAt.Unix(),
+	}
+	database.SaveJob(dbJob)
+	
 	return job
 }
 
-// StopJob stops a job
+// StopJob stops a job and updates database
 func (jm *JobManager) StopJob(id uint64) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -85,12 +142,27 @@ func (jm *JobManager) StopJob(id uint64) error {
 	if job.StopFunc != nil {
 		if err := job.StopFunc(); err != nil {
 			job.Status = JobStatusError
+			// Update database
+			metadataJSON, _ := json.Marshal(job.Metadata)
+			dbJob := &database.Job{
+				ID:        id,
+				Type:      string(job.Type),
+				Name:      job.Name,
+				Status:    "error",
+				Metadata:  string(metadataJSON),
+				CreatedAt: job.CreatedAt.Unix(),
+			}
+			database.SaveJob(dbJob)
 			return err
 		}
 	}
 	
 	job.Status = JobStatusStopped
 	delete(jm.jobs, id)
+	
+	// Update database
+	database.DeleteJob(id)
+	
 	return nil
 }
 
