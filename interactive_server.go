@@ -1946,6 +1946,8 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 	is.sessionMgr.RemoveSession(sessionID)
 	fmt.Printf("[+] Session %s removed\n", shortID(sessionID))
 	
+	// Note: Sessions in transport layers will naturally timeout when implant stops beaconing
+	
 	return nil
 }
 
