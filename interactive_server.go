@@ -308,7 +308,7 @@ Available Commands:
                                          Usage: generate <type> <os> <arch> [options]
                                          Options:
                                            --callback, -c <url>     Callback URL (http://host:port)
-                                           --delay, -d <sec>        Beacon delay (default: 30)
+                                           --delay, -d <sec>        Beacon delay (default: 10)
                                            --jitter, -j <0.0-1.0>   Jitter percentage
                                            --output, -o <path>      Output file path
                                          Example: generate full windows amd64 --callback http://192.168.1.100:8443
@@ -873,7 +873,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 			"  Options:\n" +
 			"    --output, -o <path>      Output file path\n" +
 			"    --callback, -c <url>     Callback URL (http://host:port or https://host:port)\n" +
-			"    --delay, -d <seconds>    Beacon delay in seconds (default: 30)\n" +
+			"    --delay, -d <seconds>    Beacon delay in seconds (default: 10)\n" +
 			"    --jitter, -j <0.0-1.0>   Jitter percentage (default: 0.0)\n" +
 			"    --user-agent, -u <ua>    Custom user agent string\n" +
 			"    --protocol, -p <proto>   Protocol: http, https, mtls (default: http)\n" +
@@ -1702,14 +1702,18 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 	return nil
 }
 
-// pollTaskResult polls for task result and displays it
+// pollTaskResult polls for task result and displays it (with default 10s timeout)
 func (is *InteractiveServer) pollTaskResult(sessionID, taskID string) {
+	is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+}
+
+// pollTaskResultWithTimeout polls for task result and displays it with custom timeout
+func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string, timeout time.Duration) {
 	if is.taskQueue == nil {
 		return
 	}
 	
-	// Poll for result with timeout (10 seconds for faster response)
-	timeout := 10 * time.Second
+	// Poll for result with specified timeout
 	start := time.Now()
 	ticker := time.NewTicker(200 * time.Millisecond) // Poll every 200ms for faster response
 	defer ticker.Stop()
@@ -1885,8 +1889,8 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
 	fmt.Printf("[*] A new session should appear if successful\n")
 	
-	// Poll for result
-	is.pollTaskResult(sessionID, taskID)
+	// Poll for result with extended timeout (30 minutes for getsystem)
+	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Minute)
 	return nil
 }
 

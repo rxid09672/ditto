@@ -130,7 +130,7 @@ func DefaultConfig() *Config {
 		Communication: CommConfig{
 			Protocol:   "https",
 			Jitter:     0.3,
-			Sleep:      60 * time.Second,
+			Sleep:      10 * time.Second,
 			Retries:    3,
 			RetryDelay: 5 * time.Second,
 			UserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

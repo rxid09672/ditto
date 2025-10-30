@@ -417,7 +417,7 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 	// Set delay and jitter defaults
 	delay := opts.Delay
 	if delay == 0 {
-		delay = 30 // Default 30 seconds
+		delay = 10 // Default 10 seconds
 	}
 	jitter := opts.Jitter
 	if jitter < 0 {
