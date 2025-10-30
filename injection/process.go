@@ -359,12 +359,16 @@ func (pi *ProcessInjection) getMainThreadID(processHandle windows.Handle) (uint3
 
 func (pi *ProcessInjection) injectLinux(pid int, shellcode []byte, method string) error {
 	pi.logger.Info("Injecting shellcode into Linux process PID: %d", pid)
-	return fmt.Errorf("Linux injection not yet implemented")
+	// Linux injection is implemented in process_linux.go
+	// This fallback should not be called when building for Linux
+	return fmt.Errorf("Linux injection requires Linux build target - use process_linux.go")
 }
 
 func (pi *ProcessInjection) injectDarwin(pid int, shellcode []byte, method string) error {
 	pi.logger.Info("Injecting shellcode into macOS process PID: %d", pid)
-	return fmt.Errorf("macOS injection not yet implemented")
+	// macOS injection is implemented in process_darwin.go
+	// This fallback should not be called when building for Darwin
+	return fmt.Errorf("macOS injection requires Darwin build target - use process_darwin.go")
 }
 
 // SetCurrentShellcode sets the current shellcode for migration

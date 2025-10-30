@@ -37,18 +37,27 @@ type Session struct {
 	Metadata    map[string]interface{}
 }
 
-// NewServer creates a new C2 server
+// NewServer creates a new C2 server with its own task queue
 func NewServer(config *core.Config, logger interface {
 	Info(string, ...interface{})
 	Debug(string, ...interface{})
 	Error(string, ...interface{})
 }) *Server {
+	return NewServerWithTaskQueue(config, logger, tasks.NewQueue(1000))
+}
+
+// NewServerWithTaskQueue creates a new C2 server with a shared task queue
+func NewServerWithTaskQueue(config *core.Config, logger interface {
+	Info(string, ...interface{})
+	Debug(string, ...interface{})
+	Error(string, ...interface{})
+}, taskQueue *tasks.Queue) *Server {
 	s := &Server{
 		config:    config,
 		logger:    logger,
 		sessions:  make(map[string]*Session),
 		handler:   http.NewServeMux(),
-		taskQueue: tasks.NewQueue(1000),
+		taskQueue: taskQueue,
 	}
 	
 	s.setupRoutes()

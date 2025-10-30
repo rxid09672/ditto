@@ -1,0 +1,224 @@
+syntax = "proto3";
+
+package multiplayer;
+
+option go_package = "github.com/ditto/ditto/multiplayer/proto";
+
+// Multiplayer service for operator management
+service MultiplayerService {
+  // Register a new operator
+  rpc RegisterOperator(RegisterOperatorRequest) returns (RegisterOperatorResponse);
+  
+  // List all operators
+  rpc ListOperators(ListOperatorsRequest) returns (ListOperatorsResponse);
+  
+  // Get operator details
+  rpc GetOperator(GetOperatorRequest) returns (GetOperatorResponse);
+  
+  // Remove an operator
+  rpc RemoveOperator(RemoveOperatorRequest) returns (RemoveOperatorResponse);
+  
+  // Stream operator events
+  rpc StreamOperatorEvents(StreamOperatorEventsRequest) returns (stream OperatorEvent);
+  
+  // Ping/health check
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// RegisterOperatorRequest contains operator registration info
+message RegisterOperatorRequest {
+  string username = 1;
+  string password = 2;  // Hashed password
+  repeated string permissions = 3;
+  string metadata = 4;  // JSON metadata
+}
+
+// RegisterOperatorResponse contains registration result
+message RegisterOperatorResponse {
+  string operator_id = 1;
+  string token = 2;  // Authentication token
+  bool success = 3;
+  string error_message = 4;
+}
+
+// ListOperatorsRequest requests list of operators
+message ListOperatorsRequest {
+  bool include_inactive = 1;
+  string filter = 2;  // Optional filter
+}
+
+// ListOperatorsResponse contains list of operators
+message ListOperatorsResponse {
+  repeated Operator operators = 1;
+  int32 total_count = 2;
+}
+
+// GetOperatorRequest requests specific operator
+message GetOperatorRequest {
+  string operator_id = 1;
+}
+
+// GetOperatorResponse contains operator details
+message GetOperatorResponse {
+  Operator operator = 1;
+  bool found = 2;
+}
+
+// RemoveOperatorRequest requests operator removal
+message RemoveOperatorRequest {
+  string operator_id = 1;
+  string reason = 2;
+}
+
+// RemoveOperatorResponse contains removal result
+message RemoveOperatorResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// StreamOperatorEventsRequest requests event stream
+message StreamOperatorEventsRequest {
+  string operator_id = 1;  // Optional: filter by operator
+  repeated string event_types = 2;  // Optional: filter by event types
+}
+
+// OperatorEvent represents an operator event
+message OperatorEvent {
+  string event_id = 1;
+  string event_type = 2;  // connect, disconnect, action, etc.
+  string operator_id = 3;
+  string timestamp = 4;
+  string data = 5;  // JSON data
+}
+
+// PingRequest for health check
+message PingRequest {
+  string message = 1;
+}
+
+// PingResponse for health check
+message PingResponse {
+  string message = 1;
+  int64 timestamp = 2;
+  string version = 3;
+}
+
+// Operator represents an operator
+message Operator {
+  string id = 1;
+  string username = 2;
+  string address = 3;
+  bool active = 4;
+  repeated string permissions = 5;
+  string last_seen = 6;
+  string metadata = 7;
+}
+
+// Session service for managing operator sessions
+service SessionService {
+  // Create a new session
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  
+  // Get session details
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  
+  // List all sessions
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  
+  // Update session
+  rpc UpdateSession(UpdateSessionRequest) returns (UpdateSessionResponse);
+  
+  // Close session
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+  
+  // Stream session events
+  rpc StreamSessionEvents(StreamSessionEventsRequest) returns (stream SessionEvent);
+}
+
+// CreateSessionRequest creates a new session
+message CreateSessionRequest {
+  string operator_id = 1;
+  string session_name = 2;
+  map<string, string> metadata = 3;
+}
+
+// CreateSessionResponse contains session creation result
+message CreateSessionResponse {
+  string session_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// GetSessionRequest requests session details
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+// GetSessionResponse contains session details
+message GetSessionResponse {
+  Session session = 1;
+  bool found = 2;
+}
+
+// ListSessionsRequest requests list of sessions
+message ListSessionsRequest {
+  string operator_id = 1;  // Optional filter
+  bool include_closed = 2;
+}
+
+// ListSessionsResponse contains list of sessions
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  int32 total_count = 2;
+}
+
+// UpdateSessionRequest updates session
+message UpdateSessionRequest {
+  string session_id = 1;
+  map<string, string> metadata = 2;
+}
+
+// UpdateSessionResponse contains update result
+message UpdateSessionResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// CloseSessionRequest closes a session
+message CloseSessionRequest {
+  string session_id = 1;
+  string reason = 2;
+}
+
+// CloseSessionResponse contains close result
+message CloseSessionResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// StreamSessionEventsRequest requests session event stream
+message StreamSessionEventsRequest {
+  string session_id = 1;
+  repeated string event_types = 2;
+}
+
+// SessionEvent represents a session event
+message SessionEvent {
+  string event_id = 1;
+  string event_type = 2;
+  string session_id = 3;
+  string timestamp = 4;
+  string data = 5;
+}
+
+// Session represents a session
+message Session {
+  string id = 1;
+  string operator_id = 2;
+  string name = 3;
+  string status = 4;  // active, closed, etc.
+  string created_at = 5;
+  string updated_at = 6;
+  map<string, string> metadata = 7;
+}
+

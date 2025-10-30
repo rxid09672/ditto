@@ -3,21 +3,25 @@ package modules
 import (
 	"context"
 	"fmt"
+	
+	"github.com/ditto/ditto/credentials"
 )
 
 // ModuleExecutor executes modules
 type ModuleExecutor interface {
 	Execute(ctx context.Context, module *EmpireModule, params map[string]string, sessionID string) (string, error)
 	Supports(language ModuleLanguage) bool
+	SetCredentialStore(store credentials.CredentialStore)
 }
 
 // PowerShellExecutor executes PowerShell modules
 type PowerShellExecutor struct {
-	logger interface {
+	logger     interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	credStore credentials.CredentialStore
 }
 
 // NewPowerShellExecutor creates a new PowerShell executor
@@ -27,6 +31,11 @@ func NewPowerShellExecutor(logger interface {
 	Error(string, ...interface{})
 }) *PowerShellExecutor {
 	return &PowerShellExecutor{logger: logger}
+}
+
+// SetCredentialStore sets the credential store for the executor
+func (pe *PowerShellExecutor) SetCredentialStore(store credentials.CredentialStore) {
+	pe.credStore = store
 }
 
 func (pe *PowerShellExecutor) Supports(language ModuleLanguage) bool {
@@ -42,8 +51,12 @@ func (pe *PowerShellExecutor) Execute(ctx context.Context, module *EmpireModule,
 	// Check for custom generate handler
 	customRegistry := NewCustomGenerateRegistry(pe.logger)
 	if handler, ok := customRegistry.GetHandler(module.ID); ok {
-		// TODO: Pass actual credential store when available
-		script, err := handler.Generate(module, params, sourceLoader, nil)
+		// Use credential store if available - create adapter
+		var credStore CredentialStore
+		if pe.credStore != nil {
+			credStore = &credentialStoreAdapter{store: pe.credStore}
+		}
+		script, err := handler.Generate(module, params, sourceLoader, credStore)
 		if err != nil {
 			return "", fmt.Errorf("custom generate failed: %w", err)
 		}
@@ -63,11 +76,12 @@ func (pe *PowerShellExecutor) Execute(ctx context.Context, module *EmpireModule,
 
 // PythonExecutor executes Python modules
 type PythonExecutor struct {
-	logger interface {
+	logger     interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	credStore credentials.CredentialStore
 }
 
 // NewPythonExecutor creates a new Python executor
@@ -77,6 +91,11 @@ func NewPythonExecutor(logger interface {
 	Error(string, ...interface{})
 }) *PythonExecutor {
 	return &PythonExecutor{logger: logger}
+}
+
+// SetCredentialStore sets the credential store for the executor
+func (py *PythonExecutor) SetCredentialStore(store credentials.CredentialStore) {
+	py.credStore = store
 }
 
 func (py *PythonExecutor) Supports(language ModuleLanguage) bool {
@@ -98,11 +117,12 @@ func (py *PythonExecutor) Execute(ctx context.Context, module *EmpireModule, par
 
 // CSharpExecutor executes C# modules
 type CSharpExecutor struct {
-	logger interface {
+	logger     interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	credStore credentials.CredentialStore
 }
 
 // NewCSharpExecutor creates a new C# executor
@@ -112,6 +132,11 @@ func NewCSharpExecutor(logger interface {
 	Error(string, ...interface{})
 }) *CSharpExecutor {
 	return &CSharpExecutor{logger: logger}
+}
+
+// SetCredentialStore sets the credential store for the executor
+func (cs *CSharpExecutor) SetCredentialStore(store credentials.CredentialStore) {
+	cs.credStore = store
 }
 
 func (cs *CSharpExecutor) Supports(language ModuleLanguage) bool {
@@ -140,11 +165,12 @@ func (cs *CSharpExecutor) Execute(ctx context.Context, module *EmpireModule, par
 
 // BOFExecutor executes BOF modules
 type BOFExecutor struct {
-	logger interface {
+	logger     interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	credStore credentials.CredentialStore
 }
 
 // NewBOFExecutor creates a new BOF executor
@@ -154,6 +180,11 @@ func NewBOFExecutor(logger interface {
 	Error(string, ...interface{})
 }) *BOFExecutor {
 	return &BOFExecutor{logger: logger}
+}
+
+// SetCredentialStore sets the credential store for the executor
+func (bf *BOFExecutor) SetCredentialStore(store credentials.CredentialStore) {
+	bf.credStore = store
 }
 
 func (bf *BOFExecutor) Supports(language ModuleLanguage) bool {
@@ -183,6 +214,27 @@ type ModuleExecutionManager struct {
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+}
+
+// credentialStoreAdapter adapts credentials.CredentialStore to modules.CredentialStore
+type credentialStoreAdapter struct {
+	store credentials.CredentialStore
+}
+
+func (a *credentialStoreAdapter) GetCredentialByID(id string) (*Credential, error) {
+	ctx := context.Background()
+	cred, err := a.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &Credential{
+		ID:       cred.ID,
+		Username: cred.Username,
+		Password: cred.Password,
+		Domain:   cred.Domain,
+		CredType: cred.Type,
+	}, nil
 }
 
 // NewModuleExecutionManager creates a new execution manager

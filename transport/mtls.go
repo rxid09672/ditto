@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ditto/ditto/core"
+	"github.com/ditto/ditto/tasks"
 )
 
 // mTLSTransport implements mutual TLS transport
@@ -19,16 +20,27 @@ type mTLSTransport struct {
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	taskQueue *tasks.Queue // Optional shared task queue
 }
 
-// NewmTLSTransport creates a new mTLS transport
+// NewmTLSTransport creates a new mTLS transport with its own task queue
 func NewmTLSTransport(config *core.Config, logger interface {
 	Info(string, ...interface{})
 	Debug(string, ...interface{})
 	Error(string, ...interface{})
 }) *mTLSTransport {
+	return NewmTLSTransportWithTaskQueue(config, logger, tasks.NewQueue(1000))
+}
+
+// NewmTLSTransportWithTaskQueue creates a new mTLS transport with a shared task queue
+func NewmTLSTransportWithTaskQueue(config *core.Config, logger interface {
+	Info(string, ...interface{})
+	Debug(string, ...interface{})
+	Error(string, ...interface{})
+}, taskQueue *tasks.Queue) *mTLSTransport {
 	return &mTLSTransport{
-		logger: logger,
+		logger:    logger,
+		taskQueue: taskQueue,
 	}
 }
 

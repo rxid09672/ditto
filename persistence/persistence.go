@@ -3,20 +3,21 @@ package persistence
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 )
 
 // Installer handles persistence installation
 type Installer struct {
-	targetPath string
+	targetPath   string
 	startupMethod string
 }
 
 // NewInstaller creates a new persistence installer
 func NewInstaller(targetPath, method string) *Installer {
 	return &Installer{
-		targetPath: targetPath,
+		targetPath:    targetPath,
 		startupMethod: method,
 	}
 }
@@ -159,19 +160,51 @@ func (i *Installer) installDarwinLoginItem() error {
 	return addLoginItem(i.targetPath)
 }
 
-// Platform-specific helpers (simplified)
+// Platform-specific helpers
 func setRegistryValue(keyPath, valueName, value string) error {
-	// Windows registry implementation
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("registry operations only supported on Windows")
+	}
+	
+	// Use registry package if available, otherwise use reg.exe command
+	cmd := exec.Command("reg", "add", keyPath, "/v", valueName, "/t", "REG_SZ", "/d", value, "/f")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set registry value: %w", err)
+	}
 	return nil
 }
 
 func createWindowsService(name, path string) error {
-	// Windows service creation
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("Windows service creation only supported on Windows")
+	}
+	
+	// Use sc.exe to create service
+	cmd := exec.Command("sc", "create", name, fmt.Sprintf("binpath= \"%s\"", path), "start= auto")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create Windows service: %w (may require administrator privileges)", err)
+	}
+	
+	// Start the service
+	startCmd := exec.Command("sc", "start", name)
+	if err := startCmd.Run(); err != nil {
+		return fmt.Errorf("failed to start service: %w", err)
+	}
+	
 	return nil
 }
 
 func createScheduledTask(name, path string) error {
-	// Task Scheduler implementation
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("scheduled task creation only supported on Windows")
+	}
+	
+	// Use schtasks.exe to create scheduled task
+	cmd := exec.Command("schtasks", "/create", "/tn", name, "/tr", path, "/sc", "onlogon", "/f")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create scheduled task: %w (may require administrator privileges)", err)
+	}
+	
 	return nil
 }
 
@@ -188,7 +221,31 @@ func writeServiceFile(path, content string) error {
 }
 
 func addCronEntry(entry string) error {
-	// Crontab implementation
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("cron entries only supported on Unix-like systems")
+	}
+	
+	// Read current crontab
+	cmd := exec.Command("crontab", "-l")
+	currentCron, err := cmd.Output()
+	if err != nil {
+		// If no crontab exists, that's okay - we'll create one
+		currentCron = []byte{}
+	}
+	
+	// Append new entry
+	newCron := string(currentCron)
+	if newCron != "" && newCron[len(newCron)-1] != '\n' {
+		newCron += "\n"
+	}
+	newCron += entry + "\n"
+	
+	// Write new crontab using echo and pipe
+	cmd = exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | crontab -", newCron))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to add cron entry: %w (may require appropriate permissions)", err)
+	}
+	
 	return nil
 }
 
@@ -207,7 +264,20 @@ func writeFile(path, content string) error {
 }
 
 func addLoginItem(path string) error {
-	// macOS login item implementation
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("login items only supported on macOS")
+	}
+	
+	// Use osascript to add login item
+	script := fmt.Sprintf(`tell application "System Events"
+		make login item at end with properties {path:"%s", hidden:false}
+	end tell`, path)
+	
+	cmd := exec.Command("osascript", "-e", script)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to add login item: %w", err)
+	}
+	
 	return nil
 }
 

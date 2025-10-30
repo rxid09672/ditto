@@ -39,15 +39,25 @@ type transportSession struct {
 	Metadata    map[string]interface{}
 }
 
-// NewHTTPTransport creates a new HTTP transport
+// NewHTTPTransport creates a new HTTP transport with its own task queue
 func NewHTTPTransport(config *core.Config, logger interface {
 	Info(string, ...interface{})
 	Debug(string, ...interface{})
 	Error(string, ...interface{})
 }) *HTTPTransport {
+	return NewHTTPTransportWithTaskQueue(config, logger, tasks.NewQueue(1000))
+}
+
+// NewHTTPTransportWithTaskQueue creates a new HTTP transport with a shared task queue
+func NewHTTPTransportWithTaskQueue(config *core.Config, logger interface {
+	Info(string, ...interface{})
+	Debug(string, ...interface{})
+	Error(string, ...interface{})
+}, taskQueue *tasks.Queue) *HTTPTransport {
 	return &HTTPTransport{
-		config: config,
-		logger: logger,
+		config:    config,
+		logger:    logger,
+		taskQueue: taskQueue,
 	}
 }
 
@@ -59,9 +69,13 @@ func (ht *HTTPTransport) Name() string {
 }
 
 func (ht *HTTPTransport) Start(ctx context.Context, tConfig *TransportConfig) error {
-	// Initialize session and task management
+	// Initialize session management
 	if ht.sessions == nil {
 		ht.sessions = make(map[string]*transportSession)
+	}
+	
+	// Use shared task queue if provided, otherwise create a new one
+	if ht.taskQueue == nil {
 		ht.taskQueue = tasks.NewQueue(1000)
 	}
 	

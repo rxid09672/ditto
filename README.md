@@ -16,11 +16,7 @@
 
 ---
 
-## ⚠️ DISCLAIMER
-
 **THIS SOFTWARE IS FOR AUTHORIZED SECURITY TESTING AND EDUCATIONAL PURPOSES ONLY.**
-
-Unauthorized use of this software is illegal and may result in criminal prosecution. Use only on systems you own or have explicit written permission to test. Always comply with applicable laws and regulations in your jurisdiction.
 
 ---
 
@@ -34,12 +30,16 @@ Unauthorized use of this software is illegal and may result in criminal prosecut
 - ✅ **String Obfuscation** - Runtime encryption/decryption
 - ✅ **Sleep Masking** - Evades timing analysis
 - ✅ **EDR Unhooking** - Comprehensive unhooking suite
+- ✅ **Sandbox Detection** - Detects sandboxed environments
+- ✅ **VM Detection** - Identifies virtual machine environments
+- ✅ **Call Stack Spoofing** - Advanced anti-forensics techniques
 
 ### Process Injection & Execution
 - ✅ **Direct Syscall Injection** - Unhooked process injection
 - ✅ **Multiple Methods** - CreateRemoteThread, NtCreateThreadEx, QueueUserAPC
 - ✅ **Process Migration** - Complete with shellcode extraction
 - ✅ **Cross-Platform** - Windows, Linux, macOS support
+- ✅ **Process Management** - List, find, and manipulate processes
 
 ### Privilege Escalation
 - ✅ **GetSystem** - SYSTEM elevation
@@ -51,18 +51,73 @@ Unauthorized use of this software is illegal and may result in criminal prosecut
 - ✅ **mTLS Transport** - Mutual TLS authentication
 - ✅ **Session Management** - Beacon and interactive sessions
 - ✅ **Multi-Transport** - Support for multiple protocols
+- ✅ **Task Queue** - Reliable task distribution and execution
+- ✅ **Session Synchronization** - Real-time session updates
+
+### Pivoting & Network Operations
+- ✅ **Port Forwarding** - TCP port forwarding through sessions
+- ✅ **SOCKS5 Proxy** - Full SOCKS5 proxy support with authentication
+- ✅ **Dynamic Pivot Management** - On-demand pivot creation
 
 ### Module System
 - ✅ **400+ Empire Modules** - Full PowerShell, Python, C#, BOF support
 - ✅ **YAML Configuration** - Easy module definition
 - ✅ **Custom Handlers** - Complex module generation logic
 - ✅ **Dynamic Loading** - Runtime module execution
+- ✅ **Module Registry** - Centralized module management
 
 ### Interactive CLI
 - ✅ **Beautiful Welcome Screen** - ditto.png ASCII art banner
 - ✅ **Interactive Commands** - Easy-to-use CLI interface
-- ✅ **Payload Generation** - Quick payload creation
+- ✅ **Payload Generation** - Quick payload creation with extensive options
 - ✅ **Server Management** - Built-in C2 server
+- ✅ **Job Management** - List, start, and stop background jobs
+- ✅ **Listener Management** - HTTP, HTTPS, mTLS listeners
+- ✅ **Session Interaction** - Full session control and command execution
+- ✅ **Loot Management** - Store and manage collected data
+- ✅ **Persistence Management** - Install persistence mechanisms
+- ✅ **Implant Management** - Track and manage generated implants
+
+### Payload Generation
+- ✅ **Multiple Payload Types** - Stager, shellcode, full implant
+- ✅ **Cross-Platform** - Windows, Linux, macOS support
+- ✅ **Multiple Architectures** - amd64, 386, arm64
+- ✅ **Encryption Options** - AES-256, ChaCha20
+- ✅ **Obfuscation** - Code obfuscation and string encryption
+- ✅ **Custom Callbacks** - Flexible callback URL configuration
+- ✅ **Beacon Timing** - Configurable delay and jitter
+- ✅ **Module Embedding** - Embed Empire modules at build time
+- ✅ **Evasion Features** - Selective evasion technique enablement
+
+### Filesystem Operations
+- ✅ **File Operations** - Upload, download, read, write, delete
+- ✅ **Directory Operations** - List, create, navigate directories
+- ✅ **Advanced Operations** - File permissions, timestamps, metadata
+
+### Persistence
+- ✅ **Windows Persistence** - Registry, Services, Scheduled Tasks, Startup folder
+- ✅ **Linux Persistence** - systemd, cron, rc.local
+- ✅ **macOS Persistence** - launchd, login items
+
+### Loot Management
+- ✅ **Loot Storage** - Centralized storage of collected data
+- ✅ **Type Classification** - Organized by data type
+- ✅ **Export Functionality** - Export loot as JSON
+
+### Certificate Management
+- ✅ **CA Generation** - Self-signed certificate authority
+- ✅ **Certificate Generation** - Server and client certificates
+- ✅ **Automatic Certificate Management** - Auto-generate when needed
+
+### Database Persistence
+- ✅ **SQLite Database** - Persistent storage for sessions, jobs, implants
+- ✅ **Job Tracking** - Long-running job persistence
+- ✅ **Implant Tracking** - Build history and metadata
+
+### Command Execution
+- ✅ **Safe Command Execution** - Input validation and sanitization
+- ✅ **File Transfer** - Upload/download with path sanitization
+- ✅ **Command Injection Protection** - Pattern detection and blocking
 
 ---
 

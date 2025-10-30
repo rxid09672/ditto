@@ -45,11 +45,16 @@ type InteractiveServer struct {
 	socksManager   *pivoting.SOCKS5Manager
 	persistManager *persistence.Installer
 	reactionMgr    *reactions.ReactionManager
+	taskQueue      *tasks.Queue // Shared task queue for all components
 }
 
 // NewInteractiveServer creates a new interactive server
 func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveServer {
 	moduleRegistry := modules.NewModuleRegistry(logger)
+	
+	// Create shared task queue for all components
+	sharedTaskQueue := tasks.NewQueue(1000)
+	
 	is := &InteractiveServer{
 		logger:         logger,
 		config:         cfg,
@@ -61,6 +66,7 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 		socksManager:   pivoting.NewSOCKS5Manager(),
 		persistManager: nil, // Created per-installation
 		reactionMgr:    reactions.NewReactionManager(logger),
+		taskQueue:      sharedTaskQueue,
 	}
 	
 	// Restore listener jobs from database
@@ -236,28 +242,55 @@ func (is *InteractiveServer) handleServer(args []string) error {
 		listenAddr = args[0]
 	}
 
+	// Validate address format
+	if err := validateAddress(listenAddr); err != nil {
+		return fmt.Errorf("invalid server address '%s': %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 0.0.0.0:8443, 127.0.0.1:8080, localhost:443\n"+
+			"  Note: Port must be between 1 and 65535", listenAddr, err)
+	}
+
 	fmt.Printf("[*] Starting C2 server on %s...\n", listenAddr)
 
-	is.server = transport.NewServer(is.config, is.logger)
+	is.server = transport.NewServerWithTaskQueue(is.config, is.logger, is.taskQueue)
+	
+	// Channel to track server startup errors
+	startupErr := make(chan error, 1)
 	
 	// Start server in background
 	go func() {
 		is.setServerRunning(true)
 		if err := is.server.Start(listenAddr); err != nil {
-			fmt.Printf("[!] Server error: %v\n", err)
+			is.setServerRunning(false)
+			startupErr <- err
+			return
 		}
+		// Server stopped normally
 		is.setServerRunning(false)
+		startupErr <- nil
 	}()
 	
 	// Sync server sessions periodically
 	go is.syncSessions()
 
-	// Give server time to start
-	time.Sleep(500 * time.Millisecond)
-	fmt.Printf("[+] Server started on %s\n", listenAddr)
-	fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
-	
-	return nil
+	// Give server time to start and check for immediate errors
+	select {
+	case err := <-startupErr:
+		if err != nil {
+			is.setServerRunning(false)
+			return fmt.Errorf("server failed to start: %w", err)
+		}
+		// Server stopped before we could check (shouldn't happen)
+		return fmt.Errorf("server stopped unexpectedly")
+	case <-time.After(500 * time.Millisecond):
+		// Server appears to be running (no immediate error)
+		if !is.isServerRunning() {
+			return fmt.Errorf("server failed to start")
+		}
+		fmt.Printf("[+] Server started successfully on %s\n", listenAddr)
+		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
+		return nil
+	}
 }
 
 func (is *InteractiveServer) handleStopServer() error {
@@ -299,9 +332,32 @@ func (is *InteractiveServer) handleListen(args []string) error {
 	listenerType := strings.ToLower(args[0])
 	addr := args[1]
 
+	// Validate listener type
+	validTypes := map[string]bool{"http": true, "https": true, "mtls": true}
+	if !validTypes[listenerType] {
+		return fmt.Errorf("invalid listener type '%s'\n"+
+			"  Valid types: http, https, mtls\n"+
+			"  Usage: listen <type> <address>\n"+
+			"  Examples:\n"+
+			"    listen http 0.0.0.0:8080\n"+
+			"    listen https 0.0.0.0:8443\n"+
+			"    listen mtls 0.0.0.0:9090", listenerType)
+	}
+
+	// Validate address format
+	if err := validateAddress(addr); err != nil {
+		return fmt.Errorf("invalid listener address '%s': %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 0.0.0.0:8080, 127.0.0.1:8443\n"+
+			"  Note: Port must be between 1 and 65535", addr, err)
+	}
+
 	// Ensure server is running
 	if !is.isServerRunning() {
-		return fmt.Errorf("server must be started first (use 'server start')")
+		return fmt.Errorf("server is not running - you must start the C2 server first\n"+
+			"  Usage: server [<address>]\n"+
+			"  Example: server 0.0.0.0:8443\n"+
+			"  Note: The server must be running before you can start listeners")
 	}
 
 	jobName := fmt.Sprintf("%s listener on %s", listenerType, addr)
@@ -320,7 +376,12 @@ func (is *InteractiveServer) handleListen(args []string) error {
 	}
 
 	if stopFunc == nil {
-		return fmt.Errorf("failed to start %s listener", listenerType)
+		return fmt.Errorf("failed to start %s listener on %s\n"+
+			"  Possible causes:\n"+
+			"    - Port already in use\n"+
+			"    - Insufficient permissions\n"+
+			"    - Certificate issues (for https/mtls)\n"+
+			"  Check server logs for details", listenerType, addr)
 	}
 
 	job := is.jobManager.AddJob(jobs.JobTypeListener, jobName, stopFunc)
@@ -362,7 +423,7 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 }
 
 func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() error {
-	httpTransport := transport.NewHTTPTransport(is.config, is.logger)
+	httpTransport := transport.NewHTTPTransportWithTaskQueue(is.config, is.logger, is.taskQueue)
 	
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
@@ -434,7 +495,7 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 		is.logger.Info("Certificates generated successfully")
 	}
 	
-	httpTransport := transport.NewHTTPTransport(is.config, is.logger)
+	httpTransport := transport.NewHTTPTransportWithTaskQueue(is.config, is.logger, is.taskQueue)
 
 	httpTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
@@ -508,7 +569,7 @@ func (is *InteractiveServer) startMTLSListener(addr, jobName string) func() erro
 		is.logger.Info("Certificates generated successfully")
 	}
 	
-	mtlsTransport := transport.NewmTLSTransport(is.config, is.logger)
+	mtlsTransport := transport.NewmTLSTransportWithTaskQueue(is.config, is.logger, is.taskQueue)
 	
 	mtlsTransportConfig := &transport.TransportConfig{
 		BindAddr:     addr,
@@ -540,7 +601,9 @@ func (is *InteractiveServer) handleKill(args []string) error {
 
 	jobID, err := strconv.ParseUint(args[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid job ID: %s", args[0])
+		return fmt.Errorf("invalid job ID '%s': must be a number\n"+
+			"  Usage: kill <job_id>\n"+
+			"  Use 'jobs' command to list all active jobs with their IDs", args[0])
 	}
 
 	if err := is.jobManager.StopJob(jobID); err != nil {
@@ -612,6 +675,17 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		case "--callback", "-c":
 			if i+1 < len(args) {
 				callbackURL = args[i+1]
+				// Validate callback URL format
+				if err := validateCallbackURL(callbackURL); err != nil {
+					return fmt.Errorf("invalid callback URL '%s': %w\n"+
+						"  Expected format: <protocol>://<host>[:<port>]\n"+
+						"  Valid protocols: http, https\n"+
+						"  Examples:\n"+
+						"    http://192.168.1.100:8443\n"+
+						"    https://example.com:443\n"+
+						"    http://c2.example.com\n"+
+						"  Note: Port must be between 1 and 65535 if specified", callbackURL, err)
+				}
 				i++
 			}
 		case "--delay", "-d":
@@ -1165,6 +1239,20 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 		}
 	}
 
+	// Validate addresses
+	if err := validateAddress(localAddr); err != nil {
+		return fmt.Errorf("invalid local address '%s': %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 127.0.0.1:8080, 0.0.0.0:9000\n"+
+			"  Note: Port must be between 1 and 65535", localAddr, err)
+	}
+	if err := validateAddress(remoteAddr); err != nil {
+		return fmt.Errorf("invalid remote address '%s': %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 192.168.1.100:3389, 10.0.0.5:22\n"+
+			"  Note: Port must be between 1 and 65535", remoteAddr, err)
+	}
+
 	pf, err := is.pivotManager.AddPortForward(sessionID, remoteAddr, localAddr)
 	if err != nil {
 		return fmt.Errorf("failed to create port forward: %w", err)
@@ -1240,6 +1328,14 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 		} else {
 			return fmt.Errorf("need session_id and bind_addr")
 		}
+	}
+
+	// Validate bind address
+	if err := validateAddress(bindAddr); err != nil {
+		return fmt.Errorf("invalid bind address '%s': %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 127.0.0.1:1080, 0.0.0.0:9050\n"+
+			"  Note: Port must be between 1 and 65535", bindAddr, err)
 	}
 
 	proxy, err := is.socksManager.AddSOCKS5(sessionID, bindAddr, username, password)
@@ -1509,6 +1605,92 @@ func shortID(id string) string {
 	return id
 }
 
+// validateCallbackURL validates that a callback URL is in a valid format
+func validateCallbackURL(url string) error {
+	if url == "" {
+		return fmt.Errorf("callback URL cannot be empty")
+	}
+	
+	// Check if URL has protocol
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		// If no protocol, assume http:// (will be auto-added in generator)
+		url = "http://" + url
+	}
+	
+	// Try to parse as URL
+	// We'll do basic validation since net/url might be too strict for our use case
+	// Allow formats like: http://host:port, https://host:port, http://host, https://host
+	parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(url, "http://"), "https://"), "/")
+	if len(parts) == 0 {
+		return fmt.Errorf("invalid URL format\n"+
+			"  Expected format: <protocol>://<host>[:<port>]\n"+
+			"  Valid protocols: http, https\n"+
+			"  Examples: http://192.168.1.100:8443, https://example.com:443")
+	}
+	
+	hostPort := parts[0]
+	if hostPort == "" {
+		return fmt.Errorf("host cannot be empty\n"+
+			"  Expected format: <protocol>://<host>[:<port>]\n"+
+			"  Valid protocols: http, https\n"+
+			"  Examples: http://192.168.1.100:8443, https://example.com")
+	}
+	
+	// Validate host:port format if port is present
+	if strings.Contains(hostPort, ":") {
+		host, port, err := net.SplitHostPort(hostPort)
+		if err != nil {
+			return fmt.Errorf("invalid host:port format: %w", err)
+		}
+		if host == "" {
+			return fmt.Errorf("host cannot be empty")
+		}
+		if port == "" {
+			return fmt.Errorf("port cannot be empty")
+		}
+		portNum, err := strconv.Atoi(port)
+		if err != nil {
+			return fmt.Errorf("port must be a number: %w", err)
+		}
+		if portNum < 1 || portNum > 65535 {
+			return fmt.Errorf("port must be between 1 and 65535, got %d", portNum)
+		}
+	}
+	
+	return nil
+}
+
+// validateAddress validates that an address is in the format host:port
+func validateAddress(addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid address format: %w\n"+
+			"  Expected format: <host>:<port>\n"+
+			"  Examples: 0.0.0.0:8443, 127.0.0.1:8080\n"+
+			"  Note: Port is required and must be between 1 and 65535", err)
+	}
+	
+	if host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+	
+	if port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+	
+	// Validate port is a number
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("port must be a number: %w", err)
+	}
+	
+	if portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", portNum)
+	}
+	
+	return nil
+}
+
 // syncSessions periodically syncs sessions from the server
 func (is *InteractiveServer) syncSessions() {
 	ticker := time.NewTicker(2 * time.Second)
@@ -1521,26 +1703,58 @@ func (is *InteractiveServer) syncSessions() {
 		
 		// Sync sessions from server to session manager
 		serverSessions := is.server.GetSessions()
-		for id := range serverSessions {
+		for id, serverSession := range serverSessions {
 			// Check if session exists
-			if _, exists := is.sessionMgr.GetSession(id); !exists {
-				// Create new session in manager
-				session := core.NewSession(id, core.SessionTypeBeacon, "http")
-				// Note: Session struct fields may not be directly settable
-				// This is a simplified sync - full implementation would need proper setters
+			if existingSession, exists := is.sessionMgr.GetSession(id); exists {
+				// Update existing session metadata
+				existingSession.UpdateLastSeen()
+				
+				// Copy metadata from server session
+				if serverSession.Metadata != nil {
+					for key, value := range serverSession.Metadata {
+						existingSession.SetMetadata(key, value)
+					}
+				}
+				
+				// Update RemoteAddr if changed
+				if serverSession.RemoteAddr != "" && existingSession.RemoteAddr != serverSession.RemoteAddr {
+					// Note: RemoteAddr isn't directly settable, but we can update via metadata
+					existingSession.SetMetadata("remote_addr", serverSession.RemoteAddr)
+				}
+			} else {
+				// Create new session in manager with full metadata
+				sessionType := core.SessionTypeBeacon
+				if upgraded, ok := serverSession.Metadata["upgraded"].(bool); ok && upgraded {
+					sessionType = core.SessionTypeInteractive
+				}
+				
+				transport := "http"
+				if t, ok := serverSession.Metadata["transport"].(string); ok {
+					transport = t
+				}
+				
+				session := core.NewSession(id, sessionType, transport)
+				
+				// Copy metadata from server session
+				if serverSession.Metadata != nil {
+					for key, value := range serverSession.Metadata {
+						session.SetMetadata(key, value)
+					}
+				}
+				
+				// Store remote address in metadata (since RemoteAddr isn't directly settable)
+				if serverSession.RemoteAddr != "" {
+					session.SetMetadata("remote_addr", serverSession.RemoteAddr)
+				}
+				
 				is.sessionMgr.AddSession(session)
 				
 				// Trigger reaction manager for new session
 				is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
 					"session_id": id,
-					"type":        "beacon",
-					"transport":    "http",
+					"type":        string(sessionType),
+					"transport":    transport,
 				})
-			} else {
-				// Update last seen
-				if session, ok := is.sessionMgr.GetSession(id); ok {
-					session.UpdateLastSeen()
-				}
 			}
 		}
 	}
