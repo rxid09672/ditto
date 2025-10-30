@@ -28,9 +28,8 @@ var (
 
 func main() {
 	var (
-		mode        = flag.String("mode", "interactive", "Operation mode: server, client, generate, or interactive")
+		mode        = flag.String("mode", "server", "Operation mode: server, client, generate, or interactive")
 		config      = flag.String("config", "", "Configuration file path")
-		listenAddr  = flag.String("listen", "0.0.0.0:8443", "Server listen address")
 		callbackURL = flag.String("callback", "", "Client callback URL")
 		payloadType = flag.String("payload", "stager", "Payload type: stager, shellcode, or full")
 		output      = flag.String("output", "", "Output file path")
@@ -70,7 +69,8 @@ func main() {
 
 	switch *mode {
 	case "server":
-		runServer(logger, cfg, *listenAddr)
+		// If server mode specified, start interactive server CLI
+		runInteractive(logger, cfg)
 	case "client":
 		runClient(logger, cfg, *callbackURL)
 	case "generate":
@@ -78,7 +78,8 @@ func main() {
 	case "interactive":
 		runInteractive(logger, cfg)
 	default:
-		log.Fatal("Invalid mode. Use: server, client, generate, or interactive")
+		// Default to interactive server mode if no mode specified or invalid mode
+		runInteractive(logger, cfg)
 	}
 }
 

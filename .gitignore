@@ -48,3 +48,14 @@ config.json
 # Build artifacts
 dist/
 build/
+
+# Documentation files (keep only README.md and LICENSE)
+CLI_USAGE.md
+SETUP_COMPLETE.md
+README_SETUP.md
+PUSH_TO_GITHUB.md
+CONTRIBUTING.md
+docs/
+*.md
+!README.md
+!LICENSE

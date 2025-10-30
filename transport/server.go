@@ -201,3 +201,15 @@ func generateSessionID() string {
 	return fmt.Sprintf("sess-%d", time.Now().UnixNano())
 }
 
+// GetSessions returns all active sessions
+func (s *Server) GetSessions() map[string]*Session {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+	
+	sessions := make(map[string]*Session)
+	for id, session := range s.sessions {
+		sessions[id] = session
+	}
+	return sessions
+}
+

