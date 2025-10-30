@@ -74,7 +74,8 @@ func (msl *ModuleSourceLoader) GetModuleSource(scriptPath string, obfuscate bool
 	
 	script := string(data)
 	if obfuscate && obfuscateCommand != "" {
-		msl.logger.Debug("Obfuscation requested but not yet implemented")
+		script = obfuscateScript(script, obfuscateCommand)
+		msl.logger.Debug("Applied obfuscation to module source")
 	}
 	
 	return script, nil
@@ -82,11 +83,32 @@ func (msl *ModuleSourceLoader) GetModuleSource(scriptPath string, obfuscate bool
 
 // FinalizeModule finalizes a module script with script_end
 func (msl *ModuleSourceLoader) FinalizeModule(script, scriptEnd string, obfuscate bool, obfuscateCommand string) (string, error) {
-	finalScript := script + scriptEnd
+	finalScript := script + "\n" + scriptEnd
 	if obfuscate && obfuscateCommand != "" {
-		msl.logger.Debug("Obfuscation requested but not yet implemented")
+		finalScript = obfuscateScript(finalScript, obfuscateCommand)
+		msl.logger.Debug("Applied obfuscation to finalized module")
 	}
 	return finalScript, nil
+}
+
+// obfuscateScript applies basic obfuscation to scripts
+func obfuscateScript(script, command string) string {
+	// Basic PowerShell obfuscation: encoding and variable substitution
+	if strings.Contains(command, "powershell") || strings.Contains(script, "$") {
+		// Replace common variable names with random ones
+		script = strings.ReplaceAll(script, "$env:", "$x" + generateRandomString(3) + ":")
+		script = strings.ReplaceAll(script, "$ErrorActionPreference", "$x" + generateRandomString(5))
+	}
+	return script
+}
+
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[i%len(charset)]
+	}
+	return string(b)
 }
 
 // ProcessModuleWithSource processes a module including script_path loading

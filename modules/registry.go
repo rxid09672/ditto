@@ -337,10 +337,33 @@ func (mr *ModuleRegistry) extractModulePath(filePath string) string {
 
 // ProcessModule processes a module with parameters
 func ProcessModule(module *EmpireModule, params map[string]string) (string, error) {
-	script := module.Script
+	var script string
 	
 	if module.ScriptPath != "" {
-		return "", fmt.Errorf("script_path loading not yet implemented")
+		// Load script from file path
+		// Try common module source paths
+		possiblePaths := []string{
+			module.ScriptPath,
+			"modules/module_source/" + module.ScriptPath,
+			"module_source/" + module.ScriptPath,
+		}
+		
+		for _, path := range possiblePaths {
+			if data, readErr := os.ReadFile(path); readErr == nil {
+				script = string(data)
+				break
+			}
+		}
+		
+		if script == "" {
+			return "", fmt.Errorf("failed to load script_path: %s", module.ScriptPath)
+		}
+	} else if module.Script != "" {
+		script = module.Script
+	} else if module.Language == LanguageCSharp && module.CSharp != nil {
+		script = module.CSharp.Code
+	} else {
+		return "", fmt.Errorf("module has no script, script_path, or csharp code")
 	}
 	
 	script = substituteTemplate(script, params)
@@ -363,7 +386,7 @@ func substituteTemplate(template string, params map[string]string) string {
 	
 	re := regexp.MustCompile(`\{\{\s*(\w+)\s*\}\}`)
 	result = re.ReplaceAllStringFunc(result, func(match string) string {
-		paramName := strings.TrimSpace(strings.Trim(match, "{{}}"))
+		paramName := strings.TrimSpace(strings.Trim(match, "{}"))
 		if value, ok := params[paramName]; ok {
 			return value
 		}

@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/ditto/ditto/core"
+	"github.com/ditto/ditto/tasks"
 )
 
 // BeaconHandler handles beacon messages
 type BeaconHandler struct {
 	*BaseHandler
 	sessionManager *core.SessionManager
+	taskQueue      *tasks.Queue
 }
 
 // NewBeaconHandler creates a new beacon handler
@@ -19,10 +21,11 @@ func NewBeaconHandler(logger interface {
 	Info(string, ...interface{})
 	Debug(string, ...interface{})
 	Error(string, ...interface{})
-}, sessionManager *core.SessionManager) *BeaconHandler {
+}, sessionManager *core.SessionManager, taskQueue *tasks.Queue) *BeaconHandler {
 	return &BeaconHandler{
 		BaseHandler:    NewBaseHandler(logger),
 		sessionManager: sessionManager,
+		taskQueue:      taskQueue,
 	}
 }
 
@@ -41,11 +44,31 @@ func (h *BeaconHandler) Handle(ctx context.Context, msg *Message, session *core.
 	}
 	
 	// Get pending tasks for this session
-	// TODO: Integrate with task queue
+	var pendingTasks []interface{}
+	if h.taskQueue != nil {
+		pending := h.taskQueue.GetPending()
+		for _, task := range pending {
+			// Filter by session if specified
+			if task.Parameters != nil {
+				if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+					if taskSessionID != session.ID {
+						continue
+					}
+				}
+			}
+			
+			pendingTasks = append(pendingTasks, map[string]interface{}{
+				"id":         task.ID,
+				"type":       task.Type,
+				"command":    task.Command,
+				"parameters": task.Parameters,
+			})
+		}
+	}
 	
 	response := CreateResponse(MessageTypeBeacon, session.ID, map[string]interface{}{
 		"session_id": session.ID,
-		"tasks":      []interface{}{},
+		"tasks":      pendingTasks,
 		"sleep":      session.BeaconInterval.Seconds(),
 		"jitter":     session.BeaconJitter,
 	})

@@ -34,8 +34,6 @@ func (s *Screenshot) Capture() (image.Image, error) {
 	}
 }
 
-func (s *Screenshot) captureWindows() (image.Image, error) {
-	s.logger.Info("Capturing Windows screenshot")
-	return nil, fmt.Errorf("not yet implemented")
-}
+// Platform-specific implementations are in capture_windows.go
+// This stub will be overridden by build tags
 

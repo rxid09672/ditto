@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -214,16 +215,120 @@ type MountInfo struct {
 
 func (fso *FilesystemOps) mountInfoLinux() ([]MountInfo, error) {
 	// Parse /proc/mounts
-	return nil, fmt.Errorf("not implemented")
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read /proc/mounts: %w", err)
+	}
+	
+	mounts := []MountInfo{}
+	lines := strings.Split(string(data), "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		
+		fields := strings.Fields(line)
+		if len(fields) >= 3 {
+			mount := MountInfo{
+				Device:     fields[0],
+				MountPoint: fields[1],
+				FSType:     fields[2],
+			}
+			if len(fields) >= 4 {
+				mount.Options = fields[3]
+			}
+			mounts = append(mounts, mount)
+		}
+	}
+	
+	return mounts, nil
 }
 
 func (fso *FilesystemOps) mountInfoDarwin() ([]MountInfo, error) {
 	// Parse mount output
-	return nil, fmt.Errorf("not implemented")
+	cmd := exec.Command("mount")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run mount: %w", err)
+	}
+	
+	mounts := []MountInfo{}
+	lines := strings.Split(string(output), "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Parse mount output format: "device on mountpoint (type, options)"
+		parts := strings.Fields(line)
+		if len(parts) >= 3 {
+			mount := MountInfo{
+				Device:     parts[0],
+				MountPoint: parts[2],
+			}
+			
+			// Extract filesystem type and options from parentheses
+			for i, part := range parts {
+				if strings.HasPrefix(part, "(") {
+					optionStr := strings.Join(parts[i:], " ")
+					optionStr = strings.Trim(optionStr, "()")
+					optionParts := strings.Split(optionStr, ",")
+					if len(optionParts) > 0 {
+						mount.FSType = strings.TrimSpace(optionParts[0])
+					}
+					if len(optionParts) > 1 {
+						mount.Options = strings.TrimSpace(strings.Join(optionParts[1:], ","))
+					}
+					break
+				}
+			}
+			
+			mounts = append(mounts, mount)
+		}
+	}
+	
+	return mounts, nil
 }
 
 func (fso *FilesystemOps) mountInfoWindows() ([]MountInfo, error) {
-	// Use Windows API
-	return nil, fmt.Errorf("not implemented")
+	// Use wmic or PowerShell to get mount info
+	cmd := exec.Command("wmic", "logicaldisk", "get", "deviceid,volumename,filesystem,size", "/format:list")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run wmic: %w", err)
+	}
+	
+	mounts := []MountInfo{}
+	lines := strings.Split(string(output), "\n")
+	currentMount := MountInfo{}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if currentMount.Device != "" {
+				mounts = append(mounts, currentMount)
+				currentMount = MountInfo{}
+			}
+			continue
+		}
+		
+		if strings.HasPrefix(line, "DeviceID=") {
+			currentMount.Device = strings.TrimPrefix(line, "DeviceID=")
+		} else if strings.HasPrefix(line, "VolumeName=") {
+			currentMount.MountPoint = strings.TrimPrefix(line, "VolumeName=")
+		} else if strings.HasPrefix(line, "FileSystem=") {
+			currentMount.FSType = strings.TrimPrefix(line, "FileSystem=")
+		}
+	}
+	
+	if currentMount.Device != "" {
+		mounts = append(mounts, currentMount)
+	}
+	
+	return mounts, nil
 }
 

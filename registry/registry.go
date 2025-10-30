@@ -47,19 +47,24 @@ func (ro *RegistryOps) EnumKeys(keyPath string) ([]string, error) {
 	return ro.enumKeysWindows(keyPath)
 }
 
-// Platform-specific implementations
-func (ro *RegistryOps) readKeyWindows(keyPath, valueName string) (interface{}, error) {
-	ro.logger.Info("Reading registry key: %s\\%s", keyPath, valueName)
-	return nil, fmt.Errorf("not yet implemented")
+// Platform-specific implementations are in registry_windows.go (Windows) and registry_nonwindows.go (others)
+// These functions are declared but implemented in platform-specific files via build tags
+
+// GetValue reads a registry value
+func (ro *RegistryOps) GetValue(keyPath, valueName string) (interface{}, error) {
+	return ro.ReadKey(keyPath, valueName)
 }
 
-func (ro *RegistryOps) writeKeyWindows(keyPath, valueName string, value interface{}, valueType string) error {
-	ro.logger.Info("Writing registry key: %s\\%s", keyPath, valueName)
-	return fmt.Errorf("not yet implemented")
+// SetValue writes a registry value
+func (ro *RegistryOps) SetValue(keyPath, valueName string, value interface{}, valueType string) error {
+	return ro.WriteKey(keyPath, valueName, value, valueType)
 }
 
-func (ro *RegistryOps) enumKeysWindows(keyPath string) ([]string, error) {
-	ro.logger.Info("Enumerating registry keys: %s", keyPath)
-	return nil, fmt.Errorf("not yet implemented")
+// DeleteKey deletes a registry key or value
+func (ro *RegistryOps) DeleteKey(keyPath string, valueName string) error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("registry operations only supported on Windows")
+	}
+	return ro.deleteKeyWindows(keyPath, valueName)
 }
 

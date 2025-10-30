@@ -49,14 +49,9 @@ func (pm *ProcessManager) ListProcesses() ([]ProcessInfo, error) {
 // KillProcess kills a process
 func (pm *ProcessManager) KillProcess(pid int) error {
 	pm.logger.Info("Killing process: %d", pid)
-	return fmt.Errorf("not yet implemented")
+	return pm.killProcess(pid)
 }
 
-func (pm *ProcessManager) listProcessesWindows() ([]ProcessInfo, error) {
-	return nil, fmt.Errorf("not yet implemented")
-}
-
-func (pm *ProcessManager) listProcessesLinux() ([]ProcessInfo, error) {
-	return nil, fmt.Errorf("not yet implemented")
-}
+// killProcess is implemented in platform-specific files
+// Platform-specific implementations are in manager_windows.go and manager_linux.go
 

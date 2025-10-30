@@ -3,6 +3,7 @@
 package evasion
 
 import (
+	"debug/pe"
 	"fmt"
 	"runtime"
 	"syscall"

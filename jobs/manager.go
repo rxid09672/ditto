@@ -47,13 +47,20 @@ type JobManager struct {
 
 // NewJobManager creates a new job manager
 func NewJobManager() *JobManager {
+	return NewJobManagerWithRestore(true)
+}
+
+// NewJobManagerWithRestore creates a new job manager with optional restore
+func NewJobManagerWithRestore(restore bool) *JobManager {
 	jm := &JobManager{
 		jobs:   make(map[uint64]*Job),
 		nextID: 1,
 	}
 	
-	// Restore jobs from database
-	jm.restoreJobs()
+	if restore {
+		// Restore jobs from database
+		jm.restoreJobs()
+	}
 	
 	return jm
 }

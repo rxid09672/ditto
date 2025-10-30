@@ -16,6 +16,7 @@ import (
 
 	"github.com/ditto/ditto/banner"
 	"github.com/ditto/ditto/core"
+	"github.com/ditto/ditto/modules"
 	"github.com/ditto/ditto/payload"
 	"github.com/ditto/ditto/transport"
 )
@@ -126,6 +127,9 @@ func runClient(logger *core.Logger, cfg *core.Config, callbackURL string) {
 func generatePayload(logger *core.Logger, cfg *core.Config, payloadType, output, arch, osTarget string, encrypt, obfuscate bool) {
 	logger.Info("Generating payload: type=%s, arch=%s, os=%s", payloadType, arch, osTarget)
 	
+	// Create module registry for payload generation
+	moduleRegistry := modules.NewModuleRegistry(logger)
+	
 	options := payload.Options{
 		Type:      payloadType,
 		Arch:      arch,
@@ -135,7 +139,7 @@ func generatePayload(logger *core.Logger, cfg *core.Config, payloadType, output,
 		Config:    cfg,
 	}
 	
-	gen := payload.NewGenerator(logger)
+	gen := payload.NewGenerator(logger, moduleRegistry)
 	data, err := gen.Generate(options)
 	if err != nil {
 		log.Fatalf("Payload generation failed: %v", err)

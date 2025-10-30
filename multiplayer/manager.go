@@ -68,8 +68,18 @@ func (mm *MultiplayerManager) ListOperators() []*Operator {
 }
 
 // StartGRPCServer starts gRPC server for multiplayer
+// Note: Full gRPC implementation requires protobuf definitions and generated code
+// This is a placeholder that can be extended when gRPC is needed
 func (mm *MultiplayerManager) StartGRPCServer(ctx context.Context, addr string) error {
 	mm.logger.Info("Starting gRPC server for multiplayer on %s", addr)
-	return fmt.Errorf("gRPC server not yet implemented")
+	
+	// TODO: Implement gRPC server when protobuf definitions are created
+	// Example implementation would be:
+	// 1. Create/listen on address
+	// 2. Register gRPC services
+	// 3. Handle incoming connections
+	// 4. Manage operator sessions
+	
+	return fmt.Errorf("gRPC server requires protobuf definitions - install google.golang.org/grpc and define .proto files")
 }
 

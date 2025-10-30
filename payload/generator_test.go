@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ditto/ditto/core"
+	"github.com/ditto/ditto/modules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func TestGenerateWindowsExecutable_Compiles(t *testing.T) {
 	}
 
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -80,7 +81,7 @@ func TestGenerateWindowsExecutable_Stager(t *testing.T) {
 	}
 
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -108,7 +109,7 @@ func TestGenerateWindowsExecutable_Stager(t *testing.T) {
 
 func TestGenerateWindowsSource_NoUnusedImports(t *testing.T) {
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -143,7 +144,7 @@ func TestGenerateWindowsSource_NoUnusedImports(t *testing.T) {
 
 func TestGenerateWindowsSource_Architectures(t *testing.T) {
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -245,7 +246,7 @@ func (e *CompilationError) Error() string {
 
 func TestGenerateWindowsSource_ValidSyntax(t *testing.T) {
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -308,7 +309,7 @@ func TestGenerateWindowsExecutable_WithEncryption(t *testing.T) {
 	}
 
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"
@@ -338,7 +339,7 @@ func TestGenerateWindowsSource_NoUnusedImports_AllTypes(t *testing.T) {
 	}
 
 	logger := &mockLogger{}
-	gen := NewGenerator(logger)
+	gen := NewGenerator(logger, modules.NewModuleRegistry(logger))
 
 	cfg := core.DefaultConfig()
 	cfg.Communication.Protocol = "http://localhost:8443"

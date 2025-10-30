@@ -88,6 +88,14 @@ func (mt *mTLSTransport) Accept() (Connection, error) {
 }
 
 func (mt *mTLSTransport) Connect(ctx context.Context, addr string) (Connection, error) {
+	// Initialize TLS config if not already set
+	if mt.config == nil {
+		// Create a basic TLS config for client connections
+		mt.config = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	
 	dialer := &net.Dialer{
 		Timeout: 30 * time.Second,
 	}

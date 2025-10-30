@@ -89,8 +89,9 @@ func checkLinuxDebugger() bool {
 }
 
 func checkDarwinDebugger() bool {
-	// Check for debugger attachment via sysctl
-	return checkSysctlDebugger()
+	// This function is implemented in detection_darwin.go via build tags
+	// Stub for non-Darwin builds - will be replaced by detection_darwin.go on Darwin
+	return false
 }
 
 func checkWindowsVM() bool {
@@ -124,51 +125,10 @@ func checkLinuxVM() bool {
 	return checkDMIVM()
 }
 
-// Platform-specific helpers (simplified - would need full implementation)
 func getSystemMemory() uint64 {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	return mem.Sys
-}
-
-func getSystemUptime() int64 {
-	// Platform-specific implementation
-	return 3600
-}
-
-func processExists(name string) bool {
-	// Platform-specific implementation
-	return false
-}
-
-type PEB struct {
-	BeingDebugged byte
-	// ... other fields
-}
-
-func getPEB() *PEB {
-	// Windows-specific implementation
-	return nil
-}
-
-func getTracerPID() int {
-	// Linux-specific implementation
-	return 0
-}
-
-func checkSysctlDebugger() bool {
-	// Darwin-specific implementation
-	return false
-}
-
-func registryKeyExists(key string) bool {
-	// Windows-specific implementation
-	return false
-}
-
-func getMACAddress() string {
-	// Platform-specific implementation
-	return ""
 }
 
 func isVMMAC(mac string) bool {
@@ -187,10 +147,8 @@ func isVMMAC(mac string) bool {
 	return false
 }
 
-func checkDMIVM() bool {
-	// Linux-specific DMI checking
-	return false
-}
+// Platform-specific helpers are implemented in detection_windows.go, detection_linux.go, detection_unix.go
+// These declarations are replaced by build tags on specific platforms
 
 // SleepMask masks sleep operations
 func SleepMask(duration int) {
