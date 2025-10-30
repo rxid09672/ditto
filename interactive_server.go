@@ -1913,6 +1913,42 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	return nil
 }
 
+func (is *InteractiveServer) executeKill(sessionID string) error {
+	if is.server == nil {
+		return fmt.Errorf("server not initialized\n" +
+			"  Ensure the C2 server is running with 'server start'")
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
+	// Queue kill task for session
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &tasks.Task{
+		ID:      taskID,
+		Type:    "kill",
+		Command: "kill",
+		Parameters: map[string]interface{}{
+			"session_id": sessionID,
+		},
+	}
+	is.server.EnqueueTask(task)
+	fmt.Printf("[+] Queued kill command (task: %s)\n", taskID)
+	fmt.Printf("[*] Implant will terminate and session will be closed\n")
+	
+	// Wait a moment for the kill task to be sent to the implant
+	time.Sleep(2 * time.Second)
+	
+	// Remove session from manager
+	is.sessionMgr.RemoveSession(sessionID)
+	fmt.Printf("[+] Session %s removed\n", shortID(sessionID))
+	
+	return nil
+}
+
 func (is *InteractiveServer) downloadFile(sessionID, remotePath string) error {
 	if is.server == nil {
 		return fmt.Errorf("server not initialized\n" +
