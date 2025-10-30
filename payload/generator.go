@@ -1079,7 +1079,11 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 	var moduleCode strings.Builder
 	
 	for _, moduleID := range moduleIDs {
-		module, ok := g.moduleRegistry.GetModule(moduleID)
+		module, ok := g.moduleRegistry.GetModuleByPath(moduleID)
+		if !ok {
+			// Fallback to direct ID lookup
+			module, ok = g.moduleRegistry.GetModule(moduleID)
+		}
 		if !ok {
 			g.logger.Debug("Module not found: %s", moduleID)
 			continue

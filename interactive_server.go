@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1501,8 +1502,6 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				continue
 			}
 
-			fmt.Printf("[*] Available modules (%d total):\n\n", len(allModules))
-
 			// Group by category
 			byCategory := make(map[string][]*modules.EmpireModule)
 			for _, mod := range allModules {
@@ -1510,13 +1509,93 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				byCategory[category] = append(byCategory[category], mod)
 			}
 
-			// Display grouped by category
-			for category, mods := range byCategory {
-				fmt.Printf("  %s:\n", category)
-				for _, mod := range mods {
-					fmt.Printf("    %s - %s\n", mod.ID, mod.Description)
+			// Display categories first
+			fmt.Printf("[*] Available module categories (%d modules total):\n\n", len(allModules))
+			
+			categories := make([]string, 0, len(byCategory))
+			for cat := range byCategory {
+				categories = append(categories, cat)
+			}
+			sort.Strings(categories)
+			
+			for i, category := range categories {
+				mods := byCategory[category]
+				fmt.Printf("  %d. %s (%d modules)\n", i+1, category, len(mods))
+			}
+			
+			fmt.Println("\n[*] To view modules in a category, use: modules <category>")
+			fmt.Println("    Example: modules privesc")
+			fmt.Println("    Or use: modules <module_id> to get details")
+			fmt.Println("    Example: modules powershell/privesc/getsystem")
+			
+			// If category specified, show modules in that category
+			if len(args) > 0 {
+				categoryName := strings.ToLower(args[0])
+				// Try to find matching category
+				var foundCategory string
+				for cat := range byCategory {
+					if strings.ToLower(cat) == categoryName {
+						foundCategory = cat
+						break
+					}
 				}
-				fmt.Println()
+				
+				if foundCategory != "" {
+					fmt.Printf("\n[*] Modules in category '%s':\n\n", foundCategory)
+					mods := byCategory[foundCategory]
+					sort.Slice(mods, func(i, j int) bool {
+						return mods[i].ID < mods[j].ID
+					})
+					for _, mod := range mods {
+						fmt.Printf("  %s\n", mod.ID)
+						if mod.Description != "" {
+							// Truncate long descriptions
+							desc := mod.Description
+							if len(desc) > 80 {
+								desc = desc[:77] + "..."
+							}
+							fmt.Printf("    %s\n", desc)
+						}
+						fmt.Println()
+					}
+				} else {
+					// Try to find module by ID
+					moduleID := args[0]
+					module, found := is.moduleRegistry.GetModuleByPath(moduleID)
+					if !found {
+						module, found = is.moduleRegistry.GetModule(moduleID)
+					}
+					
+					if found {
+						fmt.Printf("\n[*] Module: %s\n\n", module.ID)
+						fmt.Printf("  Name: %s\n", module.Name)
+						if module.Description != "" {
+							fmt.Printf("  Description: %s\n", module.Description)
+						}
+						fmt.Printf("  Language: %s\n", module.Language)
+						fmt.Printf("  Category: %s\n", module.Category)
+						if module.NeedsAdmin {
+							fmt.Printf("  Requires Admin: Yes\n")
+						}
+						if len(module.Options) > 0 {
+							fmt.Printf("\n  Options:\n")
+							for _, opt := range module.Options {
+								if !opt.Internal {
+									required := ""
+									if opt.Required {
+										required = " (required)"
+									}
+									fmt.Printf("    %s%s: %s\n", opt.Name, required, opt.Description)
+									if opt.Value != "" {
+										fmt.Printf("      Default: %s\n", opt.Value)
+									}
+								}
+							}
+						}
+					} else {
+						fmt.Printf("[!] Category or module not found: %s\n", args[0])
+					}
+				}
 			}
 		case "queue", "tasks":
 			if is.server == nil {
@@ -1735,10 +1814,15 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 	// Use Empire's Get-System module
 	moduleID := "powershell/privesc/getsystem"
-	_, ok = is.moduleRegistry.GetModule(moduleID)
+	module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
 	if !ok {
-		return fmt.Errorf("getsystem module not found: %s\n"+
-			"  Ensure modules are loaded from modules/empire directory", moduleID)
+		// Fallback to direct ID lookup
+		module, ok = is.moduleRegistry.GetModule(moduleID)
+		if !ok {
+			return fmt.Errorf("getsystem module not found: %s\n"+
+				"  Ensure modules are loaded from modules/empire directory\n"+
+				"  Use 'modules' command to list available modules", moduleID)
+		}
 	}
 
 	// Execute with NamedPipe technique (most reliable)

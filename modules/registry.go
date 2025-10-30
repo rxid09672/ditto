@@ -155,7 +155,12 @@ func (mr *ModuleRegistry) LoadModule(filePath string) (*EmpireModule, error) {
 	
 	// Generate ID if not present
 	if module.ID == "" {
-		module.ID = mr.generateModuleID(filePath)
+		// Use full path-based ID (e.g., powershell/privesc/getsystem)
+		module.ID = mr.extractModulePath(filePath)
+		// Remove "empire/" prefix if present
+		if strings.HasPrefix(module.ID, "empire/") {
+			module.ID = strings.TrimPrefix(module.ID, "empire/")
+		}
 	}
 	
 	// Determine category from path
@@ -201,6 +206,29 @@ func (mr *ModuleRegistry) LoadModulesFromDirectory(dirPath string) error {
 	
 	mr.logger.Info("Loaded %d modules", loadCount)
 	return err
+}
+
+// GetModuleByPath retrieves a module by path (e.g., powershell/privesc/getsystem)
+func (mr *ModuleRegistry) GetModuleByPath(path string) (*EmpireModule, bool) {
+	mr.mu.RLock()
+	defer mr.mu.RUnlock()
+	
+	// Try exact path match first
+	for _, module := range mr.modules {
+		if module.Path == path || module.ID == path {
+			return module, true
+		}
+	}
+	
+	// Try with "empire/" prefix
+	pathWithEmpire := "empire/" + path
+	for _, module := range mr.modules {
+		if module.Path == pathWithEmpire || module.ID == pathWithEmpire {
+			return module, true
+		}
+	}
+	
+	return nil, false
 }
 
 // GetModule retrieves a module by ID
