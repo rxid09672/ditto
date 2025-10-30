@@ -223,7 +223,11 @@ func hasProtocol(addr string) bool {
 }
 
 func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
+	ht.logger.Debug("Incoming beacon request from %s (method: %s, headers: %v)", 
+		r.RemoteAddr, r.Method, r.Header)
+	
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		ht.logger.Error("Invalid HTTP method for beacon: %s from %s", r.Method, r.RemoteAddr)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -237,6 +241,7 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	if sessionID != "" {
 		// Session ID provided - find existing session
 		session, _ = ht.sessions[sessionID]
+		ht.logger.Debug("Session ID provided: %s (found: %v)", sessionID, session != nil)
 	}
 	
 	if session == nil {
@@ -246,6 +251,7 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			if existingSession.RemoteAddr == r.RemoteAddr {
 				session = existingSession
 				sessionID = id
+				ht.logger.Debug("Matched existing session by RemoteAddr: %s -> %s", r.RemoteAddr, id)
 				break
 			}
 		}
@@ -263,16 +269,17 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 		ht.sessions[sessionID] = session
 		newSessionCreated = true
-		// Don't log to stdout to avoid interrupting readline prompt
-		// Log will be written to file if file logging is enabled
-		ht.logger.Debug("New session: %s from %s", sessionID, r.RemoteAddr)
+		ht.logger.Info("New session created: %s from %s", sessionID, r.RemoteAddr)
+		ht.logger.Debug("Total active sessions: %d", len(ht.sessions))
 	} else {
 		// Existing session - update LastSeen
 		session.LastSeen = time.Now()
 		// Update RemoteAddr in case it changed (NAT, etc.)
 		if session.RemoteAddr != r.RemoteAddr {
+			ht.logger.Debug("Session %s RemoteAddr changed: %s -> %s", sessionID, session.RemoteAddr, r.RemoteAddr)
 			session.RemoteAddr = r.RemoteAddr
 		}
+		ht.logger.Debug("Existing session updated: %s (last seen: %v)", sessionID, session.LastSeen)
 	}
 	ht.sessionsMu.Unlock()
 	
@@ -281,11 +288,15 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		if err := json.NewDecoder(r.Body).Decode(&metadata); err == nil {
 			session.Metadata = metadata
+			ht.logger.Debug("Received metadata for session %s: %v", sessionID, metadata)
+		} else if err.Error() != "EOF" {
+			ht.logger.Debug("Failed to decode metadata for session %s: %v", sessionID, err)
 		}
 	}
 	
 	// Get pending tasks for this session
 	pendingTasks := ht.getPendingTasks(sessionID)
+	ht.logger.Debug("Returning %d pending tasks for session %s", len(pendingTasks), sessionID)
 	
 	response := map[string]interface{}{
 		"session_id": sessionID,
@@ -295,7 +306,12 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ht.logger.Error("Failed to encode beacon response for session %s: %v", sessionID, err)
+		return
+	}
+	
+	ht.logger.Debug("Beacon response sent successfully for session %s", sessionID)
 	
 	// Trigger notification for new sessions (only for truly new ones)
 	if newSessionCreated {
@@ -304,28 +320,37 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ht *HTTPTransport) handleTask(w http.ResponseWriter, r *http.Request) {
+	ht.logger.Debug("Task request from %s (method: %s)", r.RemoteAddr, r.Method)
+	
 	if r.Method != http.MethodGet {
+		ht.logger.Error("Invalid HTTP method for task: %s from %s", r.Method, r.RemoteAddr)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
+		ht.logger.Error("Task request received without session ID from %s", r.RemoteAddr)
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
 	
+	ht.logger.Debug("Task request from session %s (from %s)", sessionID, r.RemoteAddr)
+	
 	tasks := ht.getPendingTasks(sessionID)
+	ht.logger.Debug("Retrieved %d pending tasks for session %s", len(tasks), sessionID)
 	
 	// Mark tasks as in-progress and schedule removal
 	for _, taskMap := range tasks {
 		if taskID, ok := taskMap["id"].(string); ok {
+			ht.logger.Debug("Marking task %s as in_progress for session %s", taskID, sessionID)
 			if ht.taskQueue != nil {
 				ht.taskQueue.UpdateStatus(taskID, "in_progress")
 				// Remove task after completion timeout (30 seconds)
 				go func(id string) {
 					time.Sleep(30 * time.Second)
 					if task := ht.taskQueue.Get(id); task != nil && task.Status == "in_progress" {
+						ht.logger.Debug("Removing expired task %s after timeout", id)
 						ht.taskQueue.Remove(id)
 					}
 				}(taskID)
@@ -334,45 +359,65 @@ func (ht *HTTPTransport) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"tasks": tasks,
-	})
+	}); err != nil {
+		ht.logger.Error("Failed to encode task response for session %s: %v", sessionID, err)
+		return
+	}
+	
+	ht.logger.Debug("Task response sent successfully for session %s", sessionID)
 }
 
 func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
+	ht.logger.Debug("Result request from %s (method: %s)", r.RemoteAddr, r.Method)
+	
 	if r.Method != http.MethodPost {
+		ht.logger.Error("Invalid HTTP method for result: %s from %s", r.Method, r.RemoteAddr)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	
 	sessionID := r.Header.Get("X-Session-ID")
 	if sessionID == "" {
+		ht.logger.Error("Result request received without session ID from %s", r.RemoteAddr)
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
 	
+	ht.logger.Debug("Result request from session %s (from %s)", sessionID, r.RemoteAddr)
+	
 	var result map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
+		ht.logger.Error("Failed to decode result JSON from session %s: %v", sessionID, err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 	
+	taskType, _ := result["type"].(string)
+	taskID, _ := result["task_id"].(string)
+	ht.logger.Debug("Received result for task %s (type: %s) from session %s", taskID, taskType, sessionID)
+	
 	// Update task status and remove after completion
-	if taskID, ok := result["task_id"].(string); ok {
+	if taskID != "" {
 		if ht.taskQueue != nil {
 			ht.taskQueue.SetResult(taskID, result)
+			ht.logger.Debug("Task %s result stored, scheduling removal", taskID)
 			// Remove task after a short delay to allow result processing
 			go func() {
 				time.Sleep(5 * time.Second)
 				ht.taskQueue.Remove(taskID)
+				ht.logger.Debug("Task %s removed after result processing", taskID)
 			}()
 		}
 	}
 	
-	ht.logger.Info("Task result from session %s: %v", sessionID, result)
+	ht.logger.Info("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
 	
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		ht.logger.Error("Failed to write result response: %v", err)
+	}
 }
 
 func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {

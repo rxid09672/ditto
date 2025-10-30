@@ -758,7 +758,9 @@ func beacon() {
 		// Store session ID from response
 		if sid, ok := response["session_id"].(string); ok && sid != "" {
 			sessionMu.Lock()
+			{{if .Debug}}
 			oldSessionID := sessionID
+			{{end}}
 			sessionID = sid
 			sessionMu.Unlock()
 			{{if .Debug}}
