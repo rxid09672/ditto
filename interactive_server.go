@@ -1345,8 +1345,11 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("    Example: shell whoami")
 				continue
 			}
-			if err := is.executeShellCommand(sessionID, strings.Join(args, " ")); err != nil {
+			taskID, err := is.executeShellCommand(sessionID, strings.Join(args, " "))
+			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
+			} else {
+				is.pollTaskResult(sessionID, taskID)
 			}
 		case "module", "run":
 			if len(args) < 1 {
@@ -1356,8 +1359,11 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("    Use 'modules' command to list available modules")
 				continue
 			}
-			if err := is.executeModule(sessionID, args[0], args[1:]); err != nil {
+			taskID, err := is.executeModule(sessionID, args[0], args[1:])
+			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
+			} else {
+				is.pollTaskResult(sessionID, taskID)
 			}
 		case "download":
 			if len(args) < 1 {
@@ -1476,10 +1482,69 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			if err := is.executeFilesystemOp(sessionID, "grep", args[1], args[0]); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			}
+		case "modules":
+			allModules := is.moduleRegistry.ListAllModules()
+			if len(allModules) == 0 {
+				fmt.Println("[*] No modules loaded")
+				fmt.Println("    Modules are loaded automatically from modules/ directory")
+				continue
+			}
+
+			fmt.Printf("[*] Available modules (%d total):\n\n", len(allModules))
+
+			// Group by category
+			byCategory := make(map[string][]*modules.EmpireModule)
+			for _, mod := range allModules {
+				category := string(mod.Category)
+				byCategory[category] = append(byCategory[category], mod)
+			}
+
+			// Display grouped by category
+			for category, mods := range byCategory {
+				fmt.Printf("  %s:\n", category)
+				for _, mod := range mods {
+					fmt.Printf("    %s - %s\n", mod.ID, mod.Description)
+				}
+				fmt.Println()
+			}
+		case "queue", "tasks":
+			if is.server == nil {
+				fmt.Println("[!] Error: Server not initialized")
+				continue
+			}
+			
+			// Get pending tasks for this session
+			pending := is.taskQueue.GetPending()
+			sessionTasks := make([]*tasks.Task, 0)
+			for _, task := range pending {
+				if task.Parameters != nil {
+					if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+						if taskSessionID == sessionID {
+							sessionTasks = append(sessionTasks, task)
+						}
+					}
+				}
+			}
+			
+			if len(sessionTasks) == 0 {
+				fmt.Println("[*] No pending tasks for this session")
+				continue
+			}
+			
+			fmt.Printf("[*] Pending tasks (%d):\n\n", len(sessionTasks))
+			for i, task := range sessionTasks {
+				fmt.Printf("  %d. ID: %s\n", i+1, task.ID)
+				fmt.Printf("     Type: %s\n", task.Type)
+				fmt.Printf("     Command: %s\n", task.Command)
+				fmt.Printf("     Status: %s\n", task.Status)
+				fmt.Printf("     Created: %s\n\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+			}
 		case "help", "h":
 			fmt.Println("Session commands:")
 			fmt.Println("  shell <command>  - Execute shell command")
 			fmt.Println("  module <id>      - Execute module")
+			fmt.Println("  modules          - List available modules")
+			fmt.Println("  queue            - List pending tasks")
 			fmt.Println("  migrate <pid>   - Migrate to another process")
 			fmt.Println("  grep <pattern> <path> - Search file contents")
 			fmt.Println("  head <path>      - Show first lines of file")
@@ -1490,8 +1555,11 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			fmt.Println("  back, exit       - Exit session")
 		default:
 			// Default to shell command
-			if err := is.executeShellCommand(sessionID, line); err != nil {
+			taskID, err := is.executeShellCommand(sessionID, line)
+			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
+			} else {
+				is.pollTaskResult(sessionID, taskID)
 			}
 		}
 	}
@@ -1499,27 +1567,67 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 	return nil
 }
 
-func (is *InteractiveServer) executeShellCommand(sessionID, command string) error {
+// pollTaskResult polls for task result and displays it
+func (is *InteractiveServer) pollTaskResult(sessionID, taskID string) {
+	if is.taskQueue == nil {
+		return
+	}
+	
+	// Poll for result with timeout (30 seconds)
+	timeout := 30 * time.Second
+	start := time.Now()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			task := is.taskQueue.Get(taskID)
+			if task == nil {
+				// Task removed - may have completed or timed out
+				return
+			}
+			
+			if task.Status == "completed" && task.Result != nil {
+				// Display result
+				if resultMap, ok := task.Result.(map[string]interface{}); ok {
+					if resultValue, ok := resultMap["result"].(string); ok {
+						fmt.Println(resultValue)
+					}
+				}
+				return
+			}
+			
+			if time.Since(start) > timeout {
+				fmt.Printf("[!] Task %s timed out after %v\n", taskID, timeout)
+				return
+			}
+		}
+	}
+}
+
+func (is *InteractiveServer) executeShellCommand(sessionID, command string) (string, error) {
 	if is.server == nil {
-		return fmt.Errorf("server not initialized\n" +
+		return "", fmt.Errorf("server not initialized\n" +
 			"  Ensure the C2 server is running with 'server start'")
 	}
 
 	if command == "" {
-		return fmt.Errorf("command cannot be empty\n" +
+		return "", fmt.Errorf("command cannot be empty\n" +
 			"  Usage: shell <command>\n" +
 			"  Example: shell whoami")
 	}
 
 	// Validate session exists
 	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
-		return fmt.Errorf("session not found: %s\n"+
+		return "", fmt.Errorf("session not found: %s\n"+
 			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
 	// Queue task for session
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	task := &tasks.Task{
-		ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		ID:      taskID,
 		Type:    "shell",
 		Command: command,
 		Parameters: map[string]interface{}{
@@ -1527,18 +1635,18 @@ func (is *InteractiveServer) executeShellCommand(sessionID, command string) erro
 		},
 	}
 	is.server.EnqueueTask(task)
-	fmt.Printf("[+] Queued command: %s\n", command)
-	return nil
+	fmt.Printf("[+] Queued command: %s (task: %s)\n", command, taskID)
+	return taskID, nil
 }
 
-func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) error {
+func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []string) (string, error) {
 	if is.server == nil {
-		return fmt.Errorf("server not initialized\n" +
+		return "", fmt.Errorf("server not initialized\n" +
 			"  Ensure the C2 server is running with 'server start'")
 	}
 
 	if moduleID == "" {
-		return fmt.Errorf("module ID cannot be empty\n" +
+		return "", fmt.Errorf("module ID cannot be empty\n" +
 			"  Usage: module <module_id> [args...]\n" +
 			"  Example: module powershell/credentials/mimikatz\n" +
 			"  Use 'modules' command to list available modules")
@@ -1546,13 +1654,13 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 
 	// Validate session exists
 	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
-		return fmt.Errorf("session not found: %s\n"+
+		return "", fmt.Errorf("session not found: %s\n"+
 			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
 	module, ok := is.moduleRegistry.GetModule(moduleID)
 	if !ok {
-		return fmt.Errorf("module not found: %s\n"+
+		return "", fmt.Errorf("module not found: %s\n"+
 			"  Use 'modules' command to list available modules\n"+
 			"  Note: Module IDs are case-sensitive", moduleID)
 	}
@@ -1571,15 +1679,16 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 	}
 
 	// Queue module task
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	task := &tasks.Task{
-		ID:         fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		ID:         taskID,
 		Type:       "module",
 		Command:    moduleID,
 		Parameters: params,
 	}
 	is.server.EnqueueTask(task)
-	fmt.Printf("[+] Queued module: %s (session: %s)\n", moduleID, shortID(sessionID))
-	return nil
+	fmt.Printf("[+] Queued module: %s (session: %s, task: %s)\n", moduleID, shortID(sessionID), taskID)
+	return taskID, nil
 }
 
 func (is *InteractiveServer) downloadFile(sessionID, remotePath string) error {
