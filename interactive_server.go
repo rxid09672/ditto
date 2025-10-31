@@ -2904,7 +2904,29 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 			// Execute method commands with proper timing and error checking
 			commandFailed := false
 			for idx, cmdTemplate := range method.Commands {
-				cmd := fmt.Sprintf(cmdTemplate, spawnCmd)
+				// Properly escape spawnCmd based on command type to avoid nested quote issues
+				var cmd string
+				if strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) {
+					// For reg add /d, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
+					// For schtasks /tr, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
+					// For schtasks /change /tr, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`) {
+					// For sc binPath=, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else {
+					// For other commands, use spawnCmd as-is
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmd)
+				}
+				
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				task := &tasks.Task{
 					ID:         taskID,

