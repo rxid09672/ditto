@@ -356,25 +356,28 @@ go 1.21
 	env = append(env, "CGO_ENABLED=0")
 
 	// Download dependencies before building
-	// First, try to get the required package which will update go.mod
-	g.logger.Debug("Downloading Go dependencies...")
-	getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
-	getCmd.Dir = tmpDir
-	getCmd.Env = env
-	var modStderr bytes.Buffer
-	getCmd.Stderr = &modStderr
-	if err := getCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
-	}
-	
-	// Then run go mod tidy to ensure everything is correct
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = tmpDir
-	tidyCmd.Env = env
-	tidyCmd.Stderr = &modStderr
-	if err := tidyCmd.Run(); err != nil {
-		// Non-fatal - continue if tidy fails
-		g.logger.Debug("go mod tidy had warnings: %s", modStderr.String())
+	// Only download if evasion features are enabled (they require golang.org/x/sys/windows)
+	if opts.Evasion != nil && (opts.Evasion.EnableSandboxDetection || opts.Evasion.EnableDebuggerCheck || opts.Evasion.EnableVMDetection) {
+		// First, try to get the required package which will update go.mod
+		g.logger.Debug("Downloading Go dependencies...")
+		getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
+		getCmd.Dir = tmpDir
+		getCmd.Env = env
+		var modStderr bytes.Buffer
+		getCmd.Stderr = &modStderr
+		if err := getCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
+		}
+		
+		// Then run go mod tidy to ensure everything is correct
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = tmpDir
+		tidyCmd.Env = env
+		tidyCmd.Stderr = &modStderr
+		if err := tidyCmd.Run(); err != nil {
+			// Non-fatal - continue if tidy fails
+			g.logger.Debug("go mod tidy had warnings: %s", modStderr.String())
+		}
 	}
 
 	// Determine output name
@@ -548,10 +551,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
+	"time"{{if or .Evasion.EnableSandboxDetection .Evasion.EnableDebuggerCheck .Evasion.EnableVMDetection}}
 	"unsafe"
 	
-	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows"{{end}}
 )
 
 const (
