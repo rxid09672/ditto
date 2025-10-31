@@ -333,14 +333,47 @@ func (g *Generator) generateWindowsExecutable(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("failed to write source: %w", err)
 	}
 
-	// Initialize go.mod
+	// Initialize go.mod with required dependencies
 	goModContent := `module ditto-implant
 
 go 1.21
+
+require golang.org/x/sys v0.0.0-20240106135451-37b2e5c0c76d
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write go.mod: %w", err)
+	}
+
+	// Set cross-compilation environment
+	env := os.Environ()
+	env = append(env, "GOOS=windows")
+	if opts.Arch == "amd64" {
+		env = append(env, "GOARCH=amd64")
+	} else if opts.Arch == "386" {
+		env = append(env, "GOARCH=386")
+	} else {
+		return nil, fmt.Errorf("unsupported Windows architecture: %s", opts.Arch)
+	}
+	env = append(env, "CGO_ENABLED=0")
+
+	// Download dependencies before building
+	g.logger.Debug("Downloading Go dependencies...")
+	modCmd := exec.Command("go", "mod", "download")
+	modCmd.Dir = tmpDir
+	modCmd.Env = env
+	var modStderr bytes.Buffer
+	modCmd.Stderr = &modStderr
+	if err := modCmd.Run(); err != nil {
+		// Try go get as fallback if mod download fails
+		g.logger.Debug("go mod download failed, trying go get...")
+		getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
+		getCmd.Dir = tmpDir
+		getCmd.Env = env
+		getCmd.Stderr = &modStderr
+		if getErr := getCmd.Run(); getErr != nil {
+			return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", getErr, modStderr.String())
+		}
 	}
 
 	// Determine output name
@@ -360,18 +393,6 @@ go 1.21
 	}
 	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, ".")
 	cmd.Dir = tmpDir
-	
-	// Set cross-compilation environment
-	env := os.Environ()
-	env = append(env, "GOOS=windows")
-	if opts.Arch == "amd64" {
-		env = append(env, "GOARCH=amd64")
-	} else if opts.Arch == "386" {
-		env = append(env, "GOARCH=386")
-	} else {
-		return nil, fmt.Errorf("unsupported Windows architecture: %s", opts.Arch)
-	}
-	env = append(env, "CGO_ENABLED=0")
 	cmd.Env = env
 
 	// Run build
