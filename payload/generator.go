@@ -337,8 +337,6 @@ func (g *Generator) generateWindowsExecutable(opts Options) ([]byte, error) {
 	goModContent := `module ditto-implant
 
 go 1.21
-
-require golang.org/x/sys v0.0.0-20240106135451-37b2e5c0c76d
 `
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
@@ -358,22 +356,25 @@ require golang.org/x/sys v0.0.0-20240106135451-37b2e5c0c76d
 	env = append(env, "CGO_ENABLED=0")
 
 	// Download dependencies before building
+	// First, try to get the required package which will update go.mod
 	g.logger.Debug("Downloading Go dependencies...")
-	modCmd := exec.Command("go", "mod", "download")
-	modCmd.Dir = tmpDir
-	modCmd.Env = env
+	getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
+	getCmd.Dir = tmpDir
+	getCmd.Env = env
 	var modStderr bytes.Buffer
-	modCmd.Stderr = &modStderr
-	if err := modCmd.Run(); err != nil {
-		// Try go get as fallback if mod download fails
-		g.logger.Debug("go mod download failed, trying go get...")
-		getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
-		getCmd.Dir = tmpDir
-		getCmd.Env = env
-		getCmd.Stderr = &modStderr
-		if getErr := getCmd.Run(); getErr != nil {
-			return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", getErr, modStderr.String())
-		}
+	getCmd.Stderr = &modStderr
+	if err := getCmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
+	}
+	
+	// Then run go mod tidy to ensure everything is correct
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = tmpDir
+	tidyCmd.Env = env
+	tidyCmd.Stderr = &modStderr
+	if err := tidyCmd.Run(); err != nil {
+		// Non-fatal - continue if tidy fails
+		g.logger.Debug("go mod tidy had warnings: %s", modStderr.String())
 	}
 
 	// Determine output name
