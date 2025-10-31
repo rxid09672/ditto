@@ -59,5 +59,7 @@ options:
       - ConvertTo-Html
       - ConvertTo-Xml
 script_path: privesc/PrivescCheck.ps1
-script_end: Invoke-PrivescCheck {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+script_end: |
+  $output = Invoke-PrivescCheck {{ PARAMS }} | {{ OUTPUT_FUNCTION }} | %{$_ + "`n"};
+  $output;
   'PrivescCheck completed'

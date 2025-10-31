@@ -24,6 +24,16 @@ const (
 	SessionStateDead      SessionState = "dead"
 )
 
+// PrivilegeLevel represents the privilege level of a session
+type PrivilegeLevel string
+
+const (
+	PrivilegeUser    PrivilegeLevel = "user"
+	PrivilegeAdmin   PrivilegeLevel = "admin"
+	PrivilegeSystem  PrivilegeLevel = "system"
+	PrivilegeUnknown PrivilegeLevel = "unknown"
+)
+
 // Session represents a client session (beacon or interactive)
 type Session struct {
 	ID          string
@@ -43,23 +53,57 @@ type Session struct {
 	IsInteractive bool
 	ActiveCommand string
 	
+	// Privilege and user information
+	Username      string
+	PrivilegeLevel PrivilegeLevel
+	
 	mu sync.RWMutex
 }
 
 // NewSession creates a new session
 func NewSession(id string, sessionType SessionType, transport string) *Session {
 	return &Session{
-		ID:          id,
-		Type:        sessionType,
-		State:       SessionStateActive,
-		Transport:   transport,
-		ConnectedAt: time.Now(),
-		LastSeen:    time.Now(),
-		Metadata:    make(map[string]interface{}),
+		ID:            id,
+		Type:          sessionType,
+		State:         SessionStateActive,
+		Transport:     transport,
+		ConnectedAt:   time.Now(),
+		LastSeen:      time.Now(),
+		Metadata:      make(map[string]interface{}),
 		BeaconInterval: 60 * time.Second,
 		BeaconJitter:   0.3,
-		IsInteractive: sessionType == SessionTypeInteractive,
+		IsInteractive:  sessionType == SessionTypeInteractive,
+		PrivilegeLevel: PrivilegeUnknown,
+		Username:       "",
 	}
+}
+
+// SetPrivilegeLevel sets the privilege level of the session
+func (s *Session) SetPrivilegeLevel(level PrivilegeLevel) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PrivilegeLevel = level
+}
+
+// GetPrivilegeLevel returns the privilege level
+func (s *Session) GetPrivilegeLevel() PrivilegeLevel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.PrivilegeLevel
+}
+
+// SetUsername sets the username for the session
+func (s *Session) SetUsername(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Username = username
+}
+
+// GetUsername returns the username
+func (s *Session) GetUsername() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Username
 }
 
 // UpdateLastSeen updates the last seen timestamp

