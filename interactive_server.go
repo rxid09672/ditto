@@ -995,8 +995,23 @@ func (is *InteractiveServer) handleKill(args []string) error {
 	// Get job to check type before stopping
 	job := is.jobManager.GetJob(jobID)
 	if job == nil {
+		// Check if it's a persistent job in database
+		dbJobs, err := database.GetListenerJobs()
+		if err == nil {
+			for _, dbJob := range dbJobs {
+				if dbJob.JobID == jobID {
+					// Mark as stopped in database
+					dbJob.Status = "stopped"
+					if updateErr := database.UpdateListenerJob(dbJob); updateErr != nil {
+						return fmt.Errorf("failed to mark job as stopped in database: %v", updateErr)
+					}
+					fmt.Printf("[+] Marked persistent job %d as stopped\n", jobID)
+					return nil
+				}
+			}
+		}
 		return fmt.Errorf("job not found: %d\n"+
-			"  Use 'jobs' command to list all active jobs", jobID)
+			"  Use 'jobs' command to list all active and persistent jobs", jobID)
 	}
 
 	// If it's a listener job, mark it as stopped in the database
@@ -1007,8 +1022,8 @@ func (is *InteractiveServer) handleKill(args []string) error {
 			var listenerJob database.ListenerJob
 			if dbErr := db.Where("job_id = ?", jobID).First(&listenerJob).Error; dbErr == nil {
 				listenerJob.Status = "stopped"
-				if updateErr := database.SaveListenerJob(&listenerJob); updateErr != nil {
-					is.logger.Error("Failed to update listener job status: %v", updateErr)
+				if updateErr := database.UpdateListenerJob(&listenerJob); updateErr != nil {
+					is.logger.Error("Failed to mark listener job as stopped in database: %v", updateErr)
 				}
 			}
 		}
