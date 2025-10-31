@@ -2188,6 +2188,14 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 
 	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" {
+		// Validate current session still exists
+		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
+			is.currentSession = "" // Clear invalid session
+			return fmt.Errorf("current session is no longer active\n"+
+				"  Use 'sessions' command to list all active sessions\n"+
+				"  Then use 'use <session_id>' to select a new session")
+		}
+		
 		// Use current session - need local and remote addresses
 		if len(args) < 2 {
 			return fmt.Errorf("insufficient arguments\n" +
@@ -2281,6 +2289,14 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 
 	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" {
+		// Validate current session still exists
+		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
+			is.currentSession = "" // Clear invalid session
+			return fmt.Errorf("current session is no longer active\n"+
+				"  Use 'sessions' command to list all active sessions\n"+
+				"  Then use 'use <session_id>' to select a new session")
+		}
+		
 		// Use current session - need bind address
 		if len(args) < 1 {
 			return fmt.Errorf("insufficient arguments\n" +
@@ -2519,6 +2535,14 @@ func (is *InteractiveServer) handlePersistence(args []string) error {
 
 	// Determine if we're using current session or provided session ID
 	if is.currentSession != "" && len(args) == 1 {
+		// Validate current session still exists
+		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
+			is.currentSession = "" // Clear invalid session
+			return fmt.Errorf("current session is no longer active\n"+
+				"  Use 'sessions' command to list all active sessions\n"+
+				"  Then use 'use <session_id>' to select a new session")
+		}
+		
 		// Use current session - only action provided
 		action = strings.ToLower(args[0])
 		sessionID = is.currentSession
