@@ -33,26 +33,26 @@ import (
 
 // InteractiveServer manages the interactive server CLI
 type InteractiveServer struct {
-	logger         *core.Logger
-	config         *core.Config
-	server         *transport.Server
-	serverRunning  bool
-	serverMu       sync.RWMutex
-	jobManager     *jobs.JobManager
-	sessionMgr     *core.SessionManager
-	moduleRegistry *modules.ModuleRegistry
-	currentSession string
-	lootManager    *loot.LootManager
-	pivotManager   *pivoting.PortForwardManager
-	socksManager   *pivoting.SOCKS5Manager
-	persistManager *persistence.Installer
-	reactionMgr    *reactions.ReactionManager
-	taskQueue      *tasks.Queue // Shared task queue for all components
-	completer      *interactive.Completer
-	input          interactive.InputReader
-	syncCancel     context.CancelFunc // Context cancel function for syncSessions goroutine
-	httpTransports map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
-	httpTransportsMu sync.RWMutex // Mutex for httpTransports map
+	logger           *core.Logger
+	config           *core.Config
+	server           *transport.Server
+	serverRunning    bool
+	serverMu         sync.RWMutex
+	jobManager       *jobs.JobManager
+	sessionMgr       *core.SessionManager
+	moduleRegistry   *modules.ModuleRegistry
+	currentSession   string
+	lootManager      *loot.LootManager
+	pivotManager     *pivoting.PortForwardManager
+	socksManager     *pivoting.SOCKS5Manager
+	persistManager   *persistence.Installer
+	reactionMgr      *reactions.ReactionManager
+	taskQueue        *tasks.Queue // Shared task queue for all components
+	completer        *interactive.Completer
+	input            interactive.InputReader
+	syncCancel       context.CancelFunc                  // Context cancel function for syncSessions goroutine
+	httpTransports   map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
+	httpTransportsMu sync.RWMutex                        // Mutex for httpTransports map
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -63,7 +63,7 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	sharedTaskQueue := tasks.NewQueue(1000)
 
 	completer := interactive.NewCompleter()
-	
+
 	// Set module registry for autocomplete
 	moduleCompleterAdapter := modules.NewCompleterAdapter(moduleRegistry)
 	completer.SetModuleRegistry(moduleCompleterAdapter)
@@ -114,18 +114,81 @@ func (is *InteractiveServer) restoreListenerJobs() {
 		return
 	}
 
-	// Mark all "running" listeners as "stopped" since they're not actually running after restart
-	// This prevents UNIQUE constraint errors when trying to start them again
+	// Don't mark jobs as stopped on startup - keep their status
+	// They will be auto-started when server starts if they were running
+	is.logger.Debug("Found %d persistent listener jobs", len(listenerJobs))
+}
+
+// startPersistentJobs starts all persistent jobs that were running before server restart
+func (is *InteractiveServer) startPersistentJobs() {
+	if !is.isServerRunning() {
+		return // Don't start jobs if server isn't running
+	}
+
+	listenerJobs, err := database.GetListenerJobs()
+	if err != nil {
+		is.logger.Error("Failed to get listener jobs for restoration: %v", err)
+		return
+	}
+
 	for _, dbJob := range listenerJobs {
+		// Auto-start jobs that were running before server restart
 		if dbJob.Status == "running" {
-			is.logger.Debug("Marking listener as stopped (was running before restart): %s (%s:%d)", 
-				dbJob.Type, dbJob.Host, dbJob.Port)
-			dbJob.Status = "stopped"
-			if updateErr := database.SaveListenerJob(dbJob); updateErr != nil {
-				is.logger.Error("Failed to update listener job status: %v", updateErr)
+			// Reconstruct address
+			addr := fmt.Sprintf("%s:%d", dbJob.Host, dbJob.Port)
+			
+			// Start the listener
+			is.logger.Info("Auto-starting persistent listener: %s on %s", dbJob.Type, addr)
+			if err := is.startListenerJob(dbJob.Type, addr, dbJob); err != nil {
+				is.logger.Error("Failed to auto-start listener %s on %s: %v", dbJob.Type, addr, err)
+				// Mark as stopped since it failed to start
+				dbJob.Status = "stopped"
+				database.UpdateListenerJob(dbJob)
 			}
 		}
 	}
+}
+
+// startListenerJob starts a listener job from database record
+func (is *InteractiveServer) startListenerJob(listenerType, addr string, dbJob *database.ListenerJob) error {
+	// Use the existing handleListen logic but with the database job info
+	jobName := fmt.Sprintf("%s listener on %s", listenerType, addr)
+	
+	var startFunc func() error
+	switch listenerType {
+	case "http":
+		startFunc = is.startHTTPListener(addr, jobName)
+	case "https":
+		startFunc = is.startHTTPSListener(addr, jobName)
+	case "mtls":
+		startFunc = is.startMTLSListener(addr, jobName)
+	default:
+		return fmt.Errorf("unsupported listener type: %s", listenerType)
+	}
+
+	// Add job to manager
+	job := is.jobManager.AddJob(jobs.JobTypeListener, jobName, startFunc)
+	
+	// Update database job with new JobID and status
+	dbJob.JobID = job.ID
+	dbJob.Status = "running"
+	if err := database.UpdateListenerJob(dbJob); err != nil {
+		is.logger.Error("Failed to update listener job status: %v", err)
+	}
+
+	// Start the listener in background
+	go func() {
+		if err := startFunc(); err != nil {
+			is.logger.Error("Listener %s failed: %v", jobName, err)
+			// Mark as stopped in database
+			dbJob.Status = "stopped"
+			database.UpdateListenerJob(dbJob)
+			is.jobManager.StopJob(job.ID)
+		}
+	}()
+
+	is.logger.Info("Auto-started persistent listener: %s (Job ID: %d)", jobName, job.ID)
+	return nil
 }
 
 // Run starts the interactive server CLI
@@ -141,15 +204,15 @@ func (is *InteractiveServer) Run() {
 	fmt.Println("Type 'help' for available commands")
 	fmt.Println()
 
-		for {
-			// Update prompt based on current session
-			prompt := getPrompt(is.currentSession)
-			if is.input == nil {
-				fmt.Printf("[!] Error: input handler not initialized\n")
-				break
-			}
+	for {
+		// Update prompt based on current session
+		prompt := getPrompt(is.currentSession)
+		if is.input == nil {
+			fmt.Printf("[!] Error: input handler not initialized\n")
+			break
+		}
 
-			is.input.SetPrompt(prompt)
+		is.input.SetPrompt(prompt)
 
 		line, err := is.input.ReadLine()
 		if err != nil {
@@ -411,6 +474,8 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 		}
 		// Server stopped normally
 		is.setServerRunning(false)
+		// Mark all running jobs as stopped when server stops
+		is.markAllJobsAsStopped()
 		startupErr <- nil
 	}()
 
@@ -440,6 +505,9 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 		}
 		fmt.Printf("[+] Server started successfully on %s\n", listenAddr)
 		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
+		
+		// Start persistent jobs that were running before
+		is.startPersistentJobs()
 		return nil
 	}
 }
@@ -456,7 +524,7 @@ func (is *InteractiveServer) handleServerStatus() error {
 		fmt.Println("[!] Warning: Server marked as running but server instance is nil")
 		return nil
 	}
-	
+
 	// Try to get server address from config or server
 	fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
 
@@ -488,6 +556,9 @@ func (is *InteractiveServer) handleStopServer() error {
 			is.logger.Error("Error stopping server: %v", err)
 		}
 	}
+
+	// Mark all running jobs as stopped when server stops
+	is.markAllJobsAsStopped()
 
 	is.setServerRunning(false)
 
@@ -591,25 +662,41 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 		}
 	}
 
-	// Check if listener already exists in database
+	// Check if listener already exists in database by address (unique identifier)
 	existingJob, err := database.GetListenerJobByAddress(listenerType, host, portStr)
 	if err == nil && existingJob != nil {
-		// If it's marked as running, it means it's actually running (from a previous session)
-		// We can't start another one on the same address
+		// If it's marked as running, check if it's actually running
 		if existingJob.Status == "running" {
-			return fmt.Errorf("listener already exists and is marked as running: %s on %s:%d\n"+
+			// Check if job actually exists in job manager
+			activeJob := is.jobManager.GetJob(existingJob.JobID)
+			if activeJob == nil {
+				// Job is marked as running but not actually running - update it
+				existingJob.JobID = uint64(job.ID)
+				existingJob.Status = "running"
+				existingJob.CertPath = is.config.Server.TLSCertPath
+				existingJob.KeyPath = is.config.Server.TLSKeyPath
+				existingJob.Secure = listenerType == "https" || listenerType == "mtls"
+				
+				if err := database.UpdateListenerJob(existingJob); err != nil {
+					return fmt.Errorf("failed to update listener job in database: %w\n"+
+						"  Note: Listener may still be running, but state won't persist", err)
+				}
+				return nil
+			}
+			// Job is actually running - can't start another on same address
+			return fmt.Errorf("listener already exists and is running: %s on %s:%d\n"+
 				"  If the listener is not actually running, mark it as stopped first\n"+
 				"  Or use a different address/port", listenerType, host, portStr)
 		}
-		
+
 		// Update existing stopped job to running
 		existingJob.JobID = uint64(job.ID)
 		existingJob.Status = "running"
 		existingJob.CertPath = is.config.Server.TLSCertPath
 		existingJob.KeyPath = is.config.Server.TLSKeyPath
 		existingJob.Secure = listenerType == "https" || listenerType == "mtls"
-		
-		if err := database.SaveListenerJob(existingJob); err != nil {
+
+		if err := database.UpdateListenerJob(existingJob); err != nil {
 			return fmt.Errorf("failed to update listener job in database: %w\n"+
 				"  Note: Listener may still be running, but state won't persist", err)
 		}
@@ -629,32 +716,29 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 	}
 
 	if err := database.SaveListenerJob(listenerJob); err != nil {
-		// Check if it's a UNIQUE constraint error (JobID conflict)
-		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			// Try to find and update existing job by JobID
-			var existingByJobID database.ListenerJob
-			db, dbErr := database.GetDB()
-			if dbErr == nil {
-				if dbErr := db.Where("job_id = ?", job.ID).First(&existingByJobID).Error; dbErr == nil {
-					// Update the existing job
-					existingByJobID.Type = listenerType
-					existingByJobID.Host = host
-					existingByJobID.Port = portStr
-					existingByJobID.Status = "running"
-					existingByJobID.CertPath = is.config.Server.TLSCertPath
-					existingByJobID.KeyPath = is.config.Server.TLSKeyPath
-					existingByJobID.Secure = listenerType == "https" || listenerType == "mtls"
-					if updateErr := database.SaveListenerJob(&existingByJobID); updateErr == nil {
-						return nil // Successfully updated
-					}
-				}
-			}
-		}
 		return fmt.Errorf("failed to save listener job to database: %w\n"+
 			"  Note: Listener may still be running, but state won't persist", err)
 	}
 
 	return nil
+}
+
+// markAllJobsAsStopped marks all running jobs in database as stopped
+func (is *InteractiveServer) markAllJobsAsStopped() {
+	dbJobs, err := database.GetListenerJobs()
+	if err != nil {
+		is.logger.Error("Failed to get listener jobs for marking as stopped: %v", err)
+		return
+	}
+
+	for _, dbJob := range dbJobs {
+		if dbJob.Status == "running" {
+			dbJob.Status = "stopped"
+			if updateErr := database.UpdateListenerJob(dbJob); updateErr != nil {
+				is.logger.Error("Failed to mark job as stopped: %v", updateErr)
+			}
+		}
+	}
 }
 
 func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() error {
@@ -664,7 +748,7 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 	is.httpTransportsMu.Lock()
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
-	
+
 	// Set module getter for the transport with parameter support
 	httpTransport.SetModuleGetterWithParams(func(moduleID string, params map[string]string) (string, error) {
 		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
@@ -674,7 +758,7 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 		if !ok {
 			return "", fmt.Errorf("module not found: %s", moduleID)
 		}
-		
+
 		// Process module with provided params (or empty if none)
 		if params == nil {
 			params = make(map[string]string)
@@ -683,7 +767,7 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 		if err != nil {
 			return "", fmt.Errorf("failed to process module: %w", err)
 		}
-		
+
 		return script, nil
 	})
 
@@ -769,7 +853,7 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 	is.httpTransportsMu.Lock()
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
-	
+
 	// Set module getter for the transport with parameter support
 	httpTransport.SetModuleGetterWithParams(func(moduleID string, params map[string]string) (string, error) {
 		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
@@ -779,7 +863,7 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 		if !ok {
 			return "", fmt.Errorf("module not found: %s", moduleID)
 		}
-		
+
 		// Process module with provided params (or empty if none)
 		if params == nil {
 			params = make(map[string]string)
@@ -788,7 +872,7 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 		if err != nil {
 			return "", fmt.Errorf("failed to process module: %w", err)
 		}
-		
+
 		return script, nil
 	})
 
@@ -1284,23 +1368,88 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 }
 
 func (is *InteractiveServer) printJobs() {
-	jobList := is.jobManager.ListJobs()
+	// Get active jobs from job manager
+	activeJobs := is.jobManager.ListJobs()
+	
+	// Get all persistent jobs from database
+	dbJobs, err := database.GetListenerJobs()
+	if err != nil {
+		is.logger.Error("Failed to get persistent jobs: %v", err)
+	}
 
-	if len(jobList) == 0 {
-		fmt.Println("[*] No active jobs")
+	// Combine active jobs and database jobs
+	allJobs := make(map[uint64]*jobs.Job)
+	for _, job := range activeJobs {
+		allJobs[job.ID] = job
+		// Update database status to running for active jobs
+		if job.Type == jobs.JobTypeListener {
+			// Find matching DB job by JobID
+			for _, dbJ := range dbJobs {
+				if dbJ.JobID == job.ID {
+					if dbJ.Status != "running" {
+						dbJ.Status = "running"
+						database.UpdateListenerJob(dbJ)
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Add database jobs (those not in active jobs are inactive/stopped)
+	for _, dbJob := range dbJobs {
+		if _, exists := allJobs[dbJob.JobID]; !exists {
+			// This is a persistent job that's not currently active
+			// Create a job representation for display
+			jobName := fmt.Sprintf("%s listener on %s:%d", dbJob.Type, dbJob.Host, dbJob.Port)
+			status := jobs.JobStatus(dbJob.Status)
+			if status != jobs.JobStatusRunning && status != jobs.JobStatusStopped {
+				status = jobs.JobStatusStopped // Default to stopped if invalid
+			}
+			allJobs[dbJob.JobID] = &jobs.Job{
+				ID:        dbJob.JobID,
+				Type:      jobs.JobTypeListener,
+				Name:      jobName,
+				Status:    status,
+				CreatedAt: time.Unix(dbJob.CreatedAt, 0),
+			}
+		}
+	}
+
+	if len(allJobs) == 0 {
+		fmt.Println("[*] No jobs (active or persistent)")
 		return
 	}
+
+	// Sort jobs by ID for consistent display
+	sortedJobs := make([]*jobs.Job, 0, len(allJobs))
+	for _, job := range allJobs {
+		sortedJobs = append(sortedJobs, job)
+	}
+	
+	// Sort by ID
+	sort.Slice(sortedJobs, func(i, j int) bool {
+		return sortedJobs[i].ID < sortedJobs[j].ID
+	})
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredBright)
 	t.AppendHeader(table.Row{"ID", "Type", "Name", "Status", "Created"})
 
-	for _, job := range jobList {
+	for _, job := range sortedJobs {
+		statusColor := ""
+		if job.Status == jobs.JobStatusRunning {
+			statusColor = "\033[92m" // Green
+		} else if job.Status == jobs.JobStatusStopped {
+			statusColor = "\033[91m" // Red
+		}
+		resetColor := "\033[0m"
+		
 		t.AppendRow(table.Row{
 			job.ID,
-			job.Type,
+			string(job.Type),
 			job.Name,
-			job.Status,
+			statusColor + string(job.Status) + resetColor,
 			job.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
@@ -1327,7 +1476,7 @@ func (is *InteractiveServer) printSessions() {
 
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredBright)
-	
+
 	// Purple header using ANSI codes
 	headerRow := table.Row{
 		"\033[95mID\033[0m",
@@ -1350,10 +1499,10 @@ func (is *InteractiveServer) printSessions() {
 				}
 			}
 		}
-		
+
 		state := session.GetState()
 		stateStr := string(state)
-		
+
 		// Color code rows: green for active, red for dead
 		var colorCode string
 		if state == core.SessionStateDead {
@@ -1362,7 +1511,7 @@ func (is *InteractiveServer) printSessions() {
 			colorCode = "\033[92m" // Green
 		}
 		resetCode := "\033[0m"
-		
+
 		row := table.Row{
 			colorCode + shortID(session.ID) + resetCode,
 			colorCode + string(session.Type) + resetCode,
@@ -1372,7 +1521,7 @@ func (is *InteractiveServer) printSessions() {
 			colorCode + session.LastSeen.Format("15:04:05") + resetCode,
 			colorCode + stateStr + resetCode,
 		}
-		
+
 		t.AppendRow(row)
 	}
 
@@ -1438,7 +1587,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 	// Create session-specific readline input with separate history file
 	sessionPrompt := fmt.Sprintf("[ditto %s] > ", shortID(sessionID))
 	var sessionInput interactive.InputReader
-	
+
 	// Use session-specific history file to prevent history bleeding into main CLI
 	sessionHistoryPath := interactive.GetSessionHistoryPath()
 	rlInput, err := interactive.NewReadlineInputWithCompleterAndHistory(sessionPrompt, is.completer, sessionHistoryPath)
@@ -1458,19 +1607,19 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 		if is.currentSession != sessionID {
 			break // Session changed
 		}
-		
+
 		if sessionInput == nil {
 			fmt.Printf("[!] Error: session input handler not initialized\n")
 			break
 		}
-		
+
 		// Validate session still exists before executing commands
 		if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
 			fmt.Printf("[!] Session %s no longer exists\n", shortID(sessionID))
 			is.currentSession = ""
 			break
 		}
-		
+
 		line, err := sessionInput.ReadLine()
 		if err != nil {
 			if err == io.EOF {
@@ -1660,29 +1809,29 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 
 			// Display categories first
 			fmt.Printf("[*] Available module categories (%d modules total):\n\n", len(allModules))
-			
+
 			categories := make([]string, 0, len(byCategory))
 			for cat := range byCategory {
 				categories = append(categories, cat)
 			}
 			sort.Strings(categories)
-			
+
 			for i, category := range categories {
 				mods := byCategory[category]
 				fmt.Printf("  %d. %s (%d modules)\n", i+1, category, len(mods))
 			}
-			
+
 			fmt.Println("\n[*] To view modules in a category, use: modules <category> or modules <number>")
 			fmt.Println("    Example: modules privesc")
 			fmt.Println("    Example: modules 1")
 			fmt.Println("    Or use: modules <module_id> to get details")
 			fmt.Println("    Example: modules powershell/privesc/getsystem")
-			
+
 			// If category specified, show modules in that category
 			if len(args) > 0 {
 				arg := args[0]
 				var foundCategory string
-				
+
 				// Check if it's a numeric category selection
 				if categoryNum, err := strconv.Atoi(arg); err == nil {
 					// It's a number - find category by index
@@ -1702,7 +1851,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 						}
 					}
 				}
-				
+
 				if foundCategory != "" {
 					fmt.Printf("\n[*] Modules in category '%s':\n\n", foundCategory)
 					mods := byCategory[foundCategory]
@@ -1732,7 +1881,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 					if !found {
 						module, found = is.moduleRegistry.GetModule(moduleID)
 					}
-					
+
 					if found {
 						fmt.Printf("\n[*] Module Details:\n\n")
 						fmt.Printf("  ID: %s\n", module.ID)
@@ -1771,7 +1920,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("[!] Error: Server not initialized")
 				continue
 			}
-			
+
 			// Get pending tasks for this session
 			pending := is.taskQueue.GetPending()
 			sessionTasks := make([]*tasks.Task, 0)
@@ -1784,12 +1933,12 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 					}
 				}
 			}
-			
+
 			if len(sessionTasks) == 0 {
 				fmt.Println("[*] No pending tasks for this session")
 				continue
 			}
-			
+
 			fmt.Printf("[*] Pending tasks (%d):\n\n", len(sessionTasks))
 			for i, task := range sessionTasks {
 				fmt.Printf("  %d. ID: %s\n", i+1, task.ID)
@@ -1850,12 +1999,12 @@ func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string,
 	if is.taskQueue == nil {
 		return
 	}
-	
+
 	// Poll for result with specified timeout
 	start := time.Now()
 	ticker := time.NewTicker(200 * time.Millisecond) // Poll every 200ms for faster response
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -1864,7 +2013,7 @@ func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string,
 				// Task removed - may have completed or timed out
 				return
 			}
-			
+
 			if task.Status == "completed" && task.Result != nil {
 				// Display result
 				if resultMap, ok := task.Result.(map[string]interface{}); ok {
@@ -1882,7 +2031,7 @@ func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string,
 				}
 				return
 			}
-			
+
 			if time.Since(start) > timeout {
 				fmt.Printf("[!] Task %s timed out after %v\n", taskID, timeout)
 				return
@@ -2017,8 +2166,8 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 	// Execute with NamedPipe technique (most reliable)
 	params := map[string]interface{}{
-		"session_id": sessionID,
-		"Technique":  "NamedPipe",
+		"session_id":  sessionID,
+		"Technique":   "NamedPipe",
 		"ServiceName": "",
 		"PipeName":    "",
 	}
@@ -2036,7 +2185,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 	fmt.Printf("[*] Note: This will attempt elevation even without admin privileges\n")
 	fmt.Printf("[*] If elevation fails, try other privesc modules (bypassuac, ask, etc.) first\n")
 	fmt.Printf("[*] A new session should appear if successful\n")
-	
+
 	// Poll for result with extended timeout (30 seconds for getsystem)
 	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
 	return nil
@@ -2059,7 +2208,7 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 	if ok {
 		session.SetState(core.SessionStateDead)
 	}
-	
+
 	// Queue kill task for session
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	task := &tasks.Task{
@@ -2073,14 +2222,14 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued kill command (task: %s)\n", taskID)
 	fmt.Printf("[*] Implant will terminate and session will be closed\n")
-	
+
 	// Wait a moment for the kill task to be sent to the implant
 	time.Sleep(2 * time.Second)
-	
+
 	// Mark session as dead (don't remove immediately so it shows in sessions list)
 	// Sessions will be cleaned up by CleanupDeadSessions after timeout
 	fmt.Printf("[+] Session %s marked as dead\n", shortID(sessionID))
-	
+
 	return nil
 }
 
@@ -2249,11 +2398,11 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 		// Validate current session still exists
 		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
 			is.currentSession = "" // Clear invalid session
-			return fmt.Errorf("current session is no longer active\n"+
-				"  Use 'sessions' command to list all active sessions\n"+
+			return fmt.Errorf("current session is no longer active\n" +
+				"  Use 'sessions' command to list all active sessions\n" +
 				"  Then use 'use <session_id>' to select a new session")
 		}
-		
+
 		// Use current session - need local and remote addresses
 		if len(args) < 2 {
 			return fmt.Errorf("insufficient arguments\n" +
@@ -2315,7 +2464,7 @@ func (is *InteractiveServer) handlePortForward(args []string) error {
 			conn.Close()
 			return
 		}
-		
+
 		task := &tasks.Task{
 			ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
 			Type:    "portforward",
@@ -2350,11 +2499,11 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 		// Validate current session still exists
 		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
 			is.currentSession = "" // Clear invalid session
-			return fmt.Errorf("current session is no longer active\n"+
-				"  Use 'sessions' command to list all active sessions\n"+
+			return fmt.Errorf("current session is no longer active\n" +
+				"  Use 'sessions' command to list all active sessions\n" +
 				"  Then use 'use <session_id>' to select a new session")
 		}
-		
+
 		// Use current session - need bind address
 		if len(args) < 1 {
 			return fmt.Errorf("insufficient arguments\n" +
@@ -2421,7 +2570,7 @@ func (is *InteractiveServer) handleSOCKS5(args []string) error {
 			conn.Close()
 			return
 		}
-		
+
 		task := &tasks.Task{
 			ID:      fmt.Sprintf("task-%d", time.Now().UnixNano()),
 			Type:    "socks5",
@@ -2596,11 +2745,11 @@ func (is *InteractiveServer) handlePersistence(args []string) error {
 		// Validate current session still exists
 		if _, ok := is.sessionMgr.GetSession(is.currentSession); !ok {
 			is.currentSession = "" // Clear invalid session
-			return fmt.Errorf("current session is no longer active\n"+
-				"  Use 'sessions' command to list all active sessions\n"+
+			return fmt.Errorf("current session is no longer active\n" +
+				"  Use 'sessions' command to list all active sessions\n" +
 				"  Then use 'use <session_id>' to select a new session")
 		}
-		
+
 		// Use current session - only action provided
 		action = strings.ToLower(args[0])
 		sessionID = is.currentSession
@@ -2940,7 +3089,7 @@ func (is *InteractiveServer) syncSessionsWithContext(ctx context.Context) {
 					is.syncSessionToManager(id, serverSession, "main")
 				}
 			}
-			
+
 			// Sync sessions from HTTP transports to session manager
 			is.httpTransportsMu.RLock()
 			for addr, httpTransport := range is.httpTransports {
@@ -2973,7 +3122,7 @@ func (is *InteractiveServer) syncSessionToManager(id string, serverSession *tran
 			// Store in metadata since RemoteAddr isn't directly settable
 			existingSession.SetMetadata("remote_addr", serverSession.RemoteAddr)
 		}
-		
+
 		// Update transport source
 		existingSession.SetMetadata("source", source)
 	} else {
@@ -2991,19 +3140,19 @@ func (is *InteractiveServer) syncSessionToManager(id string, serverSession *tran
 		}
 
 		session := core.NewSession(id, sessionType, transportType)
-		
+
 		// Store remote address in metadata (since RemoteAddr isn't directly settable)
 		if serverSession.RemoteAddr != "" {
 			session.SetMetadata("remote_addr", serverSession.RemoteAddr)
 		}
-		
+
 		// Copy metadata from server session
 		if serverSession.Metadata != nil {
 			for key, value := range serverSession.Metadata {
 				session.SetMetadata(key, value)
 			}
 		}
-		
+
 		// Store source
 		session.SetMetadata("source", source)
 

@@ -62,7 +62,7 @@ func getDatabasePath() string {
 type ListenerJob struct {
 	ID        string `gorm:"primaryKey"`
 	Type      string `gorm:"not null"` // http, https, mtls
-	JobID     uint64 `gorm:"uniqueIndex;not null"`
+	JobID     uint64 `gorm:"index"`    // Not unique - can change on restart
 	Host      string
 	Port      uint32
 	Secure    bool   // HTTPS/TLS enabled
@@ -145,6 +145,27 @@ func SaveListenerJob(job *ListenerJob) error {
 	}
 	
 	return db.Save(job).Error
+}
+
+// UpdateListenerJob updates an existing listener job
+func UpdateListenerJob(job *ListenerJob) error {
+	db, err := GetDB()
+	if err != nil {
+		return fmt.Errorf("failed to get database: %w", err)
+	}
+	
+	// Use Updates with Where clause to avoid UNIQUE constraint issues
+	// Update by ID (primary key), not JobID
+	return db.Model(&ListenerJob{}).Where("id = ?", job.ID).Updates(map[string]interface{}{
+		"job_id":    job.JobID,
+		"type":      job.Type,
+		"host":      job.Host,
+		"port":      job.Port,
+		"secure":    job.Secure,
+		"cert_path": job.CertPath,
+		"key_path":  job.KeyPath,
+		"status":    job.Status,
+	}).Error
 }
 
 // GetListenerJobs retrieves all listener jobs
