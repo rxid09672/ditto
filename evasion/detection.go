@@ -151,9 +151,20 @@ func isVMMAC(mac string) bool {
 // These declarations are replaced by build tags on specific platforms
 
 // SleepMask masks sleep operations
+// This is a simple wrapper - for advanced masking, use evasion.NewSleepMask()
 func SleepMask(duration int) {
-	// Implement sleep masking to evade timing analysis
-	// Would use techniques like: timers, event-based waits, etc.
-	time.Sleep(time.Duration(duration) * time.Millisecond)
+	// Simple sleep masking - split into chunks with jitter
+	// For advanced masking (NtDelayExecution, etc.), use evasion.NewSleepMask()
+	chunks := duration / 100
+	if chunks < 1 {
+		chunks = 1
+	}
+	chunkDuration := duration / chunks
+	
+	for i := 0; i < chunks; i++ {
+		// Add small random jitter to each chunk
+		jitter := i * 5 // Simple jitter
+		time.Sleep(time.Duration(chunkDuration+jitter) * time.Millisecond)
+	}
 }
 
