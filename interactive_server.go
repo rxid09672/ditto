@@ -614,8 +614,8 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
 	
-	// Set module getter for the transport
-	httpTransport.SetModuleGetter(func(moduleID string) (string, error) {
+	// Set module getter for the transport with parameter support
+	httpTransport.SetModuleGetterWithParams(func(moduleID string, params map[string]string) (string, error) {
 		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
 		if !ok {
 			module, ok = is.moduleRegistry.GetModule(moduleID)
@@ -624,8 +624,10 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 			return "", fmt.Errorf("module not found: %s", moduleID)
 		}
 		
-		// Process module to get script
-		params := make(map[string]string)
+		// Process module with provided params (or empty if none)
+		if params == nil {
+			params = make(map[string]string)
+		}
 		script, err := modules.ProcessModule(module, params)
 		if err != nil {
 			return "", fmt.Errorf("failed to process module: %w", err)
@@ -717,8 +719,8 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 	is.httpTransports[addr] = httpTransport
 	is.httpTransportsMu.Unlock()
 	
-	// Set module getter for the transport
-	httpTransport.SetModuleGetter(func(moduleID string) (string, error) {
+	// Set module getter for the transport with parameter support
+	httpTransport.SetModuleGetterWithParams(func(moduleID string, params map[string]string) (string, error) {
 		module, ok := is.moduleRegistry.GetModuleByPath(moduleID)
 		if !ok {
 			module, ok = is.moduleRegistry.GetModule(moduleID)
@@ -727,8 +729,10 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 			return "", fmt.Errorf("module not found: %s", moduleID)
 		}
 		
-		// Process module to get script
-		params := make(map[string]string)
+		// Process module with provided params (or empty if none)
+		if params == nil {
+			params = make(map[string]string)
+		}
 		script, err := modules.ProcessModule(module, params)
 		if err != nil {
 			return "", fmt.Errorf("failed to process module: %w", err)
