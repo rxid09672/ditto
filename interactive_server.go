@@ -1873,7 +1873,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 					sort.Slice(mods, func(i, j int) bool {
 						return mods[i].ID < mods[j].ID
 					})
-					
+
 					// Build ordered list of all modules for global numbering
 					orderedModules := make([]*modules.EmpireModule, 0, len(allModules))
 					for _, category := range categories {
@@ -1883,13 +1883,13 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 						})
 						orderedModules = append(orderedModules, catMods...)
 					}
-					
+
 					// Build a map of module to global index
 					moduleToIndex := make(map[*modules.EmpireModule]int)
 					for i, mod := range orderedModules {
 						moduleToIndex[mod] = i + 1 // 1-based indexing
 					}
-					
+
 					for _, mod := range mods {
 						// Show global index number
 						globalIndex := moduleToIndex[mod]
@@ -2132,20 +2132,20 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 			// It's a numeric ID - look it up in the modules list
 			// Need to match the same ordering as displayed in 'modules' command
 			allModules := is.moduleRegistry.ListAllModules()
-			
+
 			// Group by category and sort (same as modules command)
 			byCategory := make(map[string][]*modules.EmpireModule)
 			for _, mod := range allModules {
 				category := string(mod.Category)
 				byCategory[category] = append(byCategory[category], mod)
 			}
-			
+
 			categories := make([]string, 0, len(byCategory))
 			for cat := range byCategory {
 				categories = append(categories, cat)
 			}
 			sort.Strings(categories)
-			
+
 			// Build ordered list matching display order
 			orderedModules := make([]*modules.EmpireModule, 0, len(allModules))
 			for _, category := range categories {
@@ -2156,15 +2156,15 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 				})
 				orderedModules = append(orderedModules, mods...)
 			}
-			
+
 			if numID > 0 && numID <= len(orderedModules) {
 				module = orderedModules[numID-1] // Convert to 0-based index
-				moduleID = module.ID // Update moduleID to the actual string ID
+				moduleID = module.ID             // Update moduleID to the actual string ID
 				ok = true
 			}
 		}
 	}
-	
+
 	if !ok {
 		return "", fmt.Errorf("module not found: %s\n"+
 			"  Use 'modules' command to list available modules\n"+
