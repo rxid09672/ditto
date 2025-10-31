@@ -354,7 +354,7 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	// Get task ID from query parameter to retrieve task parameters
 	taskID := r.URL.Query().Get("task_id")
 	sessionID := r.Header.Get("X-Session-ID")
-	
+
 	s.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
 
 	if s.moduleGetter == nil {
@@ -510,7 +510,7 @@ func (s *Server) getPendingTasks(sessionID string) []map[string]interface{} {
 		if task.Status == "in_progress" || task.Status == "failed" {
 			continue
 		}
-		
+
 		// Filter tasks by session if specified in parameters
 		if task.Parameters != nil {
 			if taskSessionID, ok := task.Parameters["session_id"].(string); ok {

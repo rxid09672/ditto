@@ -192,6 +192,13 @@ func (jm *JobManager) StopJob(id uint64) error {
 	return nil
 }
 
+// GetJob retrieves a job by ID
+func (jm *JobManager) GetJob(id uint64) *Job {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+	return jm.jobs[id]
+}
+
 // ListJobs lists all jobs
 func (jm *JobManager) ListJobs() []*Job {
 	jm.mu.RLock()

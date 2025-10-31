@@ -174,6 +174,21 @@ func GetListenerJobByID(id string) (*ListenerJob, error) {
 	return &job, nil
 }
 
+// GetListenerJobByAddress retrieves a listener job by type, host, and port
+func GetListenerJobByAddress(listenerType, host string, port uint32) (*ListenerJob, error) {
+	db, err := GetDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database: %w", err)
+	}
+	
+	var job ListenerJob
+	err = db.Where("type = ? AND host = ? AND port = ?", listenerType, host, port).First(&job).Error
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
 // DeleteListenerJob deletes a listener job
 func DeleteListenerJob(id string) error {
 	db, err := GetDB()

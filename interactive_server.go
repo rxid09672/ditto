@@ -114,12 +114,19 @@ func (is *InteractiveServer) restoreListenerJobs() {
 		return
 	}
 
-	for _, dbJob := range listenerJobs {
-		if dbJob.Status == "running" {
-			is.logger.Info("Found persistent listener job: %s (%s:%d)", dbJob.Type, dbJob.Host, dbJob.Port)
-			// Note: We can't restore the actual listener without the StopFunc
-			// This is logged for visibility but listener would need to be manually restarted
-			// This matches Sliver's behavior - jobs are restored but listeners need manual restart
+	// Mark all "running" listeners as "stopped" since they're not actually running after restart
+	// This prevents UNIQUE constraint errors when trying to start them again
+	db, dbErr := database.GetDB()
+	if dbErr == nil {
+		for _, dbJob := range listenerJobs {
+			if dbJob.Status == "running" {
+				is.logger.Debug("Marking listener as stopped (was running before restart): %s (%s:%d)", 
+					dbJob.Type, dbJob.Host, dbJob.Port)
+				dbJob.Status = "stopped"
+				if updateErr := database.SaveListenerJob(dbJob); updateErr != nil {
+					is.logger.Error("Failed to update listener job status: %v", updateErr)
+				}
+			}
 		}
 	}
 }
@@ -587,6 +594,32 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 		}
 	}
 
+	// Check if listener already exists in database
+	existingJob, err := database.GetListenerJobByAddress(listenerType, host, portStr)
+	if err == nil && existingJob != nil {
+		// If it's marked as running, it means it's actually running (from a previous session)
+		// We can't start another one on the same address
+		if existingJob.Status == "running" {
+			return fmt.Errorf("listener already exists and is marked as running: %s on %s:%d\n"+
+				"  If the listener is not actually running, mark it as stopped first\n"+
+				"  Or use a different address/port", listenerType, host, portStr)
+		}
+		
+		// Update existing stopped job to running
+		existingJob.JobID = uint64(job.ID)
+		existingJob.Status = "running"
+		existingJob.CertPath = is.config.Server.TLSCertPath
+		existingJob.KeyPath = is.config.Server.TLSKeyPath
+		existingJob.Secure = listenerType == "https" || listenerType == "mtls"
+		
+		if err := database.SaveListenerJob(existingJob); err != nil {
+			return fmt.Errorf("failed to update listener job in database: %w\n"+
+				"  Note: Listener may still be running, but state won't persist", err)
+		}
+		return nil
+	}
+
+	// Create new listener job
 	listenerJob := &database.ListenerJob{
 		JobID:    uint64(job.ID),
 		Type:     listenerType,
@@ -599,6 +632,27 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 	}
 
 	if err := database.SaveListenerJob(listenerJob); err != nil {
+		// Check if it's a UNIQUE constraint error (JobID conflict)
+		if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			// Try to find and update existing job by JobID
+			var existingByJobID database.ListenerJob
+			db, dbErr := database.GetDB()
+			if dbErr == nil {
+				if dbErr := db.Where("job_id = ?", job.ID).First(&existingByJobID).Error; dbErr == nil {
+					// Update the existing job
+					existingByJobID.Type = listenerType
+					existingByJobID.Host = host
+					existingByJobID.Port = portStr
+					existingByJobID.Status = "running"
+					existingByJobID.CertPath = is.config.Server.TLSCertPath
+					existingByJobID.KeyPath = is.config.Server.TLSKeyPath
+					existingByJobID.Secure = listenerType == "https" || listenerType == "mtls"
+					if updateErr := database.SaveListenerJob(&existingByJobID); updateErr == nil {
+						return nil // Successfully updated
+					}
+				}
+			}
+		}
 		return fmt.Errorf("failed to save listener job to database: %w\n"+
 			"  Note: Listener may still be running, but state won't persist", err)
 	}
@@ -857,14 +911,30 @@ func (is *InteractiveServer) handleKill(args []string) error {
 			"  Use 'jobs' command to list all active jobs with their IDs", args[0])
 	}
 
-	if err := is.jobManager.StopJob(jobID); err != nil {
-		return fmt.Errorf("failed to stop job: %w", err)
+	// Get job to check type before stopping
+	job := is.jobManager.GetJob(jobID)
+	if job == nil {
+		return fmt.Errorf("job not found: %d\n"+
+			"  Use 'jobs' command to list all active jobs", jobID)
 	}
 
-	// Remove from database
-	if err := database.DeleteJob(jobID); err != nil {
-		is.logger.Error("Failed to delete job from database: %v", err)
-		// Continue anyway
+	// If it's a listener job, mark it as stopped in the database
+	if job.Type == jobs.JobTypeListener {
+		// Find listener job in database by JobID
+		db, dbErr := database.GetDB()
+		if dbErr == nil {
+			var listenerJob database.ListenerJob
+			if dbErr := db.Where("job_id = ?", jobID).First(&listenerJob).Error; dbErr == nil {
+				listenerJob.Status = "stopped"
+				if updateErr := database.SaveListenerJob(&listenerJob); updateErr != nil {
+					is.logger.Error("Failed to update listener job status: %v", updateErr)
+				}
+			}
+		}
+	}
+
+	if err := is.jobManager.StopJob(jobID); err != nil {
+		return fmt.Errorf("failed to stop job: %w", err)
 	}
 
 	fmt.Printf("[+] Stopped job %d\n", jobID)
