@@ -2858,7 +2858,6 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 	fmt.Printf("[+] Current user: %s (Privilege: %s)\n", username, currentPriv)
 
 	// Step 1.5: Try AccessChk discovery (if available) - graceful degradation
-	var accessChkMatches []privesc.ModuleMatch
 	fmt.Printf("[*] Step 1.5: Attempting AccessChk discovery (optional, graceful degradation if unavailable)...\n")
 	accessChkOutput, err := is.executeAccessChk(sessionID)
 	if err == nil && accessChkOutput != "" {
@@ -2866,7 +2865,6 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 		matches, err := is.privescIntelligence.AnalyzeAccessChkOutput(accessChkOutput)
 		if err == nil && len(matches) > 0 {
 			fmt.Printf("[+] Found %d exploitable permissions via AccessChk\n", len(matches))
-			accessChkMatches = matches
 			// Log findings for intelligence purposes
 			for _, match := range matches {
 				if match.Confidence == "High" {
