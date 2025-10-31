@@ -411,6 +411,136 @@ func (pi *PrivescIntelligence) DetermineUserLevel(output string) bool {
 	return false
 }
 
+// AnalyzeAccessChkOutput parses AccessChk output and identifies exploitable permissions
+func (pi *PrivescIntelligence) AnalyzeAccessChkOutput(output string) ([]ModuleMatch, error) {
+	matches := make([]ModuleMatch, 0)
+	
+	if output == "" {
+		return matches, nil
+	}
+	
+	lines := strings.Split(output, "\n")
+	var currentSection string
+	var currentObject string
+	var currentPermissions string
+	var currentAccount string
+	
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Detect section headers
+		if strings.HasPrefix(line, "===") && strings.HasSuffix(line, "===") {
+			currentSection = line
+			continue
+		}
+		
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+		
+		// AccessChk output format:
+		// objectname
+		// RW account1
+		// R account2
+		// ...
+		
+		// Check if this line is an object name (no R/W prefix, not indented)
+		// Object names are typically paths, service names, or registry keys
+		if !strings.HasPrefix(line, "R") && !strings.HasPrefix(line, "W") && 
+		   !strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "  ") &&
+		   !strings.Contains(strings.ToLower(line), "error") &&
+		   !strings.Contains(strings.ToLower(line), "not recognized") {
+			
+			// This might be an object name
+			// Check if next line has permissions
+			if i+1 < len(lines) {
+				nextLine := strings.TrimSpace(lines[i+1])
+				if strings.HasPrefix(nextLine, "R") || strings.HasPrefix(nextLine, "W") {
+					currentObject = line
+				}
+			}
+			continue
+		}
+		
+		// Check if this is a permission line (starts with R or W)
+		if strings.HasPrefix(line, "R") || strings.HasPrefix(line, "W") {
+			// Extract permissions (R, W, RW)
+			permissions := ""
+			if strings.HasPrefix(line, "RW") {
+				permissions = "RW"
+			} else if strings.HasPrefix(line, "W") {
+				permissions = "W"
+			} else if strings.HasPrefix(line, "R") {
+				permissions = "R"
+			}
+			
+			// Extract account name (everything after permissions)
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				account := strings.Join(parts[1:], " ")
+				currentPermissions = permissions
+				currentAccount = account
+				
+				// Check if this is exploitable
+				if permissions == "W" || permissions == "RW" {
+					// Check if account is Users, Authenticated Users, or Everyone
+					accountLower := strings.ToLower(account)
+					if strings.Contains(accountLower, "users") ||
+						strings.Contains(accountLower, "everyone") ||
+						strings.Contains(accountLower, "authenticated") {
+						
+						// Determine exploitation type based on object type
+						objectLower := strings.ToLower(currentObject)
+						escalationType := "User->Admin"
+						confidence := "Medium"
+						reason := ""
+						
+						// Service weak permissions
+						if strings.Contains(currentSection, "service") || strings.Contains(currentSection, "wsvc") {
+							escalationType = "User->Admin"
+							confidence = "High"
+							reason = fmt.Sprintf("Service '%s' has weak permissions - writable by %s", currentObject, account)
+							
+							match := ModuleMatch{
+								ModuleID:       "powershell/privesc/powerup/service_exe_restore",
+								Name:           "Service Binary Manipulation",
+								Description:    fmt.Sprintf("Service '%s' has weak permissions allowing binary replacement", currentObject),
+								EscalationType: escalationType,
+								Confidence:     confidence,
+								Reason:         reason,
+							}
+							matches = append(matches, match)
+						}
+						
+						// Writable directories (DLL hijacking opportunities)
+						if strings.Contains(currentSection, "writable") || strings.Contains(currentSection, "wus") {
+							// Check if it's a directory path
+							if strings.Contains(objectLower, ":\\") || strings.Contains(objectLower, "/") {
+								escalationType = "User->Admin"
+								confidence = "Medium"
+								reason = fmt.Sprintf("Directory '%s' is writable by %s - potential DLL hijacking", currentObject, account)
+								
+								match := ModuleMatch{
+									ModuleID:       "powershell/privesc/powerup/dll_hijack",
+									Name:           "DLL Hijacking",
+									Description:    fmt.Sprintf("Writable directory '%s' allows DLL hijacking", currentObject),
+									EscalationType: escalationType,
+									Confidence:     confidence,
+									Reason:         reason,
+								}
+								matches = append(matches, match)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return matches, nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
