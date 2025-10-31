@@ -62,18 +62,53 @@ func NewReadlineInputWithCompleterAndHistory(prompt string, completer *Completer
 		completer = NewCompleter()
 	}
 	
-	// Build completer items
+	// Build completer items with dynamic completion support
 	items := make([]readline.PrefixCompleterInterface, 0)
 	
 	// Add all commands to completer
 	for name := range completer.commands {
-		items = append(items, readline.PcItem(name))
+		// Special handling for "module" command to enable dynamic completion
+		if name == "module" {
+			// Create dynamic completer for module command
+			items = append(items, readline.PcItem(name, readline.PcItemDynamic(func(line string) []string {
+				// Extract prefix from line (e.g., "module powershell/pr" -> "powershell/pr")
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					completions := completer.Complete(line)
+					// Remove trailing space and return
+					result := make([]string, len(completions))
+					for i, c := range completions {
+						result[i] = strings.TrimSpace(c)
+					}
+					return result
+				}
+				return []string{}
+			})))
+		} else {
+			items = append(items, readline.PcItem(name))
+		}
 	}
 	
 	// Also add aliases as separate completions
 	for _, info := range completer.commands {
 		for _, alias := range info.Aliases {
-			items = append(items, readline.PcItem(alias))
+			if alias == "run" {
+				// "run" is alias for "module", use dynamic completion
+				items = append(items, readline.PcItem(alias, readline.PcItemDynamic(func(line string) []string {
+					parts := strings.Fields(line)
+					if len(parts) >= 2 {
+						completions := completer.Complete(line)
+						result := make([]string, len(completions))
+						for i, c := range completions {
+							result[i] = strings.TrimSpace(c)
+						}
+						return result
+					}
+					return []string{}
+				})))
+			} else {
+				items = append(items, readline.PcItem(alias))
+			}
 		}
 	}
 	

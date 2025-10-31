@@ -63,6 +63,10 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	sharedTaskQueue := tasks.NewQueue(1000)
 
 	completer := interactive.NewCompleter()
+	
+	// Set module registry for autocomplete
+	moduleCompleterAdapter := modules.NewCompleterAdapter(moduleRegistry)
+	completer.SetModuleRegistry(moduleCompleterAdapter)
 
 	is := &InteractiveServer{
 		logger:         logger,

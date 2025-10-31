@@ -27,7 +27,10 @@ type CommandInfo struct {
 
 // Completer handles command completion and validation
 type Completer struct {
-	commands map[string]*CommandInfo
+	commands      map[string]*CommandInfo
+	moduleRegistry interface {
+		ListAllModules() []interface{ GetID() string }
+	} // ModuleRegistry interface for module completion
 }
 
 // NewCompleter creates a new command completer
@@ -141,8 +144,36 @@ func (c *Completer) Complete(line string) []string {
 		return completions
 	}
 	
+	// Handle module command completion
+	if len(parts) >= 1 && (parts[0] == "module" || parts[0] == "run") {
+		if len(parts) == 2 {
+			// Completing module ID
+			prefix := parts[1]
+			completions := make([]string, 0)
+			
+			if c.moduleRegistry != nil {
+				allModules := c.moduleRegistry.ListAllModules()
+				for _, mod := range allModules {
+					moduleID := mod.GetID()
+					if strings.HasPrefix(moduleID, prefix) {
+						completions = append(completions, moduleID+" ")
+					}
+				}
+			}
+			
+			return completions
+		}
+	}
+	
 	// For subsequent arguments, return empty (could be enhanced later)
 	return []string{}
+}
+
+// SetModuleRegistry sets the module registry for autocomplete
+func (c *Completer) SetModuleRegistry(registry interface {
+	ListAllModules() []interface{ GetID() string }
+}) {
+	c.moduleRegistry = registry
 }
 
 // HighlightCommand highlights a command based on validity (similar to Sliver)

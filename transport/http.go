@@ -32,7 +32,7 @@ type HTTPTransport struct {
 	sessions     map[string]*transportSession
 	sessionsMu   sync.RWMutex
 	taskQueue    *tasks.Queue
-	moduleGetter func(string) (string, error) // Function to get module script by ID
+	moduleGetter func(string, map[string]string) (string, error) // Function to get module script by ID with optional params
 }
 
 type transportSession struct {
@@ -67,7 +67,19 @@ func NewHTTPTransportWithTaskQueue(config *core.Config, logger interface {
 }
 
 // SetModuleGetter sets the function to retrieve module scripts
+// The getter function will be wrapped to accept optional parameters
 func (ht *HTTPTransport) SetModuleGetter(getter func(string) (string, error)) {
+	// Store the original getter and create a wrapper that accepts params
+	originalGetter := getter
+	ht.moduleGetter = func(moduleID string, params map[string]string) (string, error) {
+		// For now, ignore params and use original getter
+		// In the future, we can enhance this to re-process with params
+		return originalGetter(moduleID)
+	}
+}
+
+// SetModuleGetterWithParams sets a module getter that accepts parameters
+func (ht *HTTPTransport) SetModuleGetterWithParams(getter func(string, map[string]string) (string, error)) {
 	ht.moduleGetter = getter
 }
 
@@ -544,17 +556,48 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	ht.logger.Debug("Module request for %s from %s", moduleID, r.RemoteAddr)
+	// Get task ID from query parameter to retrieve task parameters
+	taskID := r.URL.Query().Get("task_id")
+	sessionID := r.Header.Get("X-Session-ID")
+	
+	ht.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
 	
 	if ht.moduleGetter == nil {
 		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
 		return
 	}
 	
-	script, err := ht.moduleGetter(moduleID)
+	// Extract parameters from task if task ID provided
+	params := make(map[string]string)
+	if taskID != "" && ht.taskQueue != nil {
+		task := ht.taskQueue.Get(taskID)
+		if task != nil && task.Parameters != nil {
+			// Convert task parameters to map[string]string
+			for k, v := range task.Parameters {
+				if str, ok := v.(string); ok {
+					params[k] = str
+				} else {
+					params[k] = fmt.Sprintf("%v", v)
+				}
+			}
+			ht.logger.Debug("Task %s requested module %s with %d parameters", taskID, moduleID, len(params))
+		}
+	}
+	
+	// Get module script with parameters
+	script, err := ht.moduleGetter(moduleID, params)
 	if err != nil {
 		ht.logger.Error("Failed to get module %s: %v", moduleID, err)
-		http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
+		// Mark task as failed to prevent retries
+		if taskID != "" && ht.taskQueue != nil {
+			ht.taskQueue.UpdateStatus(taskID, "failed")
+		}
+		// Return clear error message
+		if strings.Contains(err.Error(), "module not found") {
+			http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to process module %s: %v", moduleID, err), http.StatusInternalServerError)
+		}
 		return
 	}
 	
@@ -580,6 +623,11 @@ func (ht *HTTPTransport) getPendingTasks(sessionID string) []map[string]interfac
 	tasks := make([]map[string]interface{}, 0, len(pending))
 	
 	for _, task := range pending {
+		// Skip tasks that are already in progress or failed - don't retry them
+		if task.Status == "in_progress" || task.Status == "failed" {
+			continue
+		}
+		
 		// Filter tasks by session if specified in parameters
 		if task.Parameters != nil {
 			if taskSessionID, ok := task.Parameters["session_id"].(string); ok {

