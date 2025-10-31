@@ -75,6 +75,16 @@ func (q *Queue) GetPending() []*Task {
 	return pending
 }
 
+// GetAll retrieves all tasks
+func (q *Queue) GetAll() []*Task {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	
+	allTasks := make([]*Task, len(q.tasks))
+	copy(allTasks, q.tasks)
+	return allTasks
+}
+
 // UpdateStatus updates task status
 func (q *Queue) UpdateStatus(id, status string) {
 	q.mu.Lock()

