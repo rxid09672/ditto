@@ -422,8 +422,6 @@ func (pi *PrivescIntelligence) AnalyzeAccessChkOutput(output string) ([]ModuleMa
 	lines := strings.Split(output, "\n")
 	var currentSection string
 	var currentObject string
-	var currentPermissions string
-	var currentAccount string
 	
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -479,8 +477,6 @@ func (pi *PrivescIntelligence) AnalyzeAccessChkOutput(output string) ([]ModuleMa
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				account := strings.Join(parts[1:], " ")
-				currentPermissions = permissions
-				currentAccount = account
 				
 				// Check if this is exploitable
 				if permissions == "W" || permissions == "RW" {
