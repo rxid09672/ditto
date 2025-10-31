@@ -1509,19 +1509,19 @@ func (is *InteractiveServer) printSessions() {
 	}
 
 	t := table.NewWriter()
-	t.SetStyle(table.StyleColoredBright)
+	t.SetStyle(table.StyleColoredDark)
 
-	// Purple header using ANSI codes
+	// Dark header with white text using ANSI codes
 	headerRow := table.Row{
-		"\033[95mID\033[0m",
-		"\033[95mType\033[0m",
-		"\033[95mUser\033[0m",
-		"\033[95mPrivilege\033[0m",
-		"\033[95mTransport\033[0m",
-		"\033[95mRemote Addr\033[0m",
-		"\033[95mConnected\033[0m",
-		"\033[95mLast Seen\033[0m",
-		"\033[95mState\033[0m",
+		"\033[1;34mID\033[0m",           // Bold dark blue
+		"\033[1;34mType\033[0m",         // Bold dark blue
+		"\033[1;34mUser\033[0m",         // Bold dark blue
+		"\033[1;34mPrivilege\033[0m",    // Bold dark blue
+		"\033[1;34mTransport\033[0m",    // Bold dark blue
+		"\033[1;34mRemote Addr\033[0m",  // Bold dark blue
+		"\033[1;34mConnected\033[0m",    // Bold dark blue
+		"\033[1;34mLast Seen\033[0m",    // Bold dark blue
+		"\033[1;34mState\033[0m",        // Bold dark blue
 	}
 	t.AppendHeader(headerRow)
 
@@ -1562,30 +1562,30 @@ func (is *InteractiveServer) printSessions() {
 			}
 		}
 
-		// Color code rows: green for active, red for dead
+		// Color code rows: dark colors for better readability
 		var colorCode string
 		if state == core.SessionStateDead {
-			colorCode = "\033[91m" // Red
+			colorCode = "\033[31m" // Dark red for dead sessions
 		} else {
-			colorCode = "\033[92m" // Green
+			colorCode = "\033[37m" // White/light gray for active sessions
 		}
 		resetCode := "\033[0m"
 
-		// Color code privilege level
+		// Color code privilege level with dark colors
 		var privColor string
 		var privDisplay string
 		switch privLevel {
 		case core.PrivilegeSystem:
-			privColor = "\033[95m" // Magenta/Purple for SYSTEM
+			privColor = "\033[35m" // Dark magenta for SYSTEM
 			privDisplay = "SYSTEM"
 		case core.PrivilegeAdmin:
-			privColor = "\033[93m" // Yellow for Admin
+			privColor = "\033[33m" // Dark yellow for Admin
 			privDisplay = "Admin"
 		case core.PrivilegeUser:
-			privColor = "\033[96m" // Cyan for User
+			privColor = "\033[36m" // Dark cyan for User
 			privDisplay = "User"
 		default:
-			privColor = "\033[90m" // Gray for Unknown
+			privColor = "\033[90m" // Dark gray for Unknown
 			privDisplay = "Unknown"
 		}
 
