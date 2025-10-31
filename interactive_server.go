@@ -116,16 +116,13 @@ func (is *InteractiveServer) restoreListenerJobs() {
 
 	// Mark all "running" listeners as "stopped" since they're not actually running after restart
 	// This prevents UNIQUE constraint errors when trying to start them again
-	db, dbErr := database.GetDB()
-	if dbErr == nil {
-		for _, dbJob := range listenerJobs {
-			if dbJob.Status == "running" {
-				is.logger.Debug("Marking listener as stopped (was running before restart): %s (%s:%d)", 
-					dbJob.Type, dbJob.Host, dbJob.Port)
-				dbJob.Status = "stopped"
-				if updateErr := database.SaveListenerJob(dbJob); updateErr != nil {
-					is.logger.Error("Failed to update listener job status: %v", updateErr)
-				}
+	for _, dbJob := range listenerJobs {
+		if dbJob.Status == "running" {
+			is.logger.Debug("Marking listener as stopped (was running before restart): %s (%s:%d)", 
+				dbJob.Type, dbJob.Host, dbJob.Port)
+			dbJob.Status = "stopped"
+			if updateErr := database.SaveListenerJob(dbJob); updateErr != nil {
+				is.logger.Error("Failed to update listener job status: %v", updateErr)
 			}
 		}
 	}
