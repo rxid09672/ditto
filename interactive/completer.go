@@ -165,6 +165,97 @@ func (c *Completer) Complete(line string) []string {
 		}
 	}
 	
+	// Handle generate command completion
+	if len(parts) >= 1 && (parts[0] == "generate" || parts[0] == "gen" || parts[0] == "g") {
+		// Position-based completion
+		if len(parts) == 2 {
+			// Completing payload type
+			prefix := strings.ToLower(parts[1])
+			types := []string{"stager", "shellcode", "full"}
+			completions := make([]string, 0)
+			for _, t := range types {
+				if strings.HasPrefix(t, prefix) {
+					completions = append(completions, t+" ")
+				}
+			}
+			return completions
+		} else if len(parts) == 3 {
+			// Completing OS
+			prefix := strings.ToLower(parts[2])
+			oses := []string{"linux", "windows", "darwin"}
+			completions := make([]string, 0)
+			for _, os := range oses {
+				if strings.HasPrefix(os, prefix) {
+					completions = append(completions, os+" ")
+				}
+			}
+			return completions
+		} else if len(parts) == 4 {
+			// Completing architecture
+			prefix := strings.ToLower(parts[3])
+			arches := []string{"amd64", "386", "arm64"}
+			completions := make([]string, 0)
+			for _, arch := range arches {
+				if strings.HasPrefix(arch, prefix) {
+					completions = append(completions, arch+" ")
+				}
+			}
+			return completions
+		} else if len(parts) >= 5 {
+			// Completing flags
+			lastPart := parts[len(parts)-1]
+			flags := []string{
+				"--output", "-o",
+				"--callback", "-c",
+				"--delay", "-d",
+				"--jitter", "-j",
+				"--user-agent", "-u",
+				"--protocol", "-p",
+				"--no-encrypt",
+				"--no-obfuscate",
+				"--debug",
+				"--modules", "-m",
+				"--evasion",
+			}
+			
+			// Check if last part is a flag value (starts with -)
+			if strings.HasPrefix(lastPart, "-") {
+				// Complete flag name
+				completions := make([]string, 0)
+				for _, flag := range flags {
+					if strings.HasPrefix(flag, lastPart) {
+						completions = append(completions, flag+" ")
+					}
+				}
+				return completions
+			} else {
+				// Check if previous part was a flag that needs a value
+				if len(parts) >= 2 {
+					prevPart := parts[len(parts)-2]
+					if prevPart == "--output" || prevPart == "-o" {
+						// File path completion (just suggest common paths)
+						return []string{"./", "/tmp/", "~/"}
+					} else if prevPart == "--callback" || prevPart == "-c" {
+						// URL suggestions
+						return []string{"http://", "https://"}
+					} else if prevPart == "--protocol" || prevPart == "-p" {
+						// Protocol options
+						return []string{"http", "https", "mtls"}
+					} else if prevPart == "--evasion" {
+						// Evasion options
+						return []string{"sandbox", "debugger", "vm", "etw", "amsi", "sleepmask", "syscalls"}
+					}
+				}
+				// Otherwise suggest flags
+				completions := make([]string, 0)
+				for _, flag := range flags {
+					completions = append(completions, flag+" ")
+				}
+				return completions
+			}
+		}
+	}
+	
 	// For subsequent arguments, return empty (could be enhanced later)
 	return []string{}
 }

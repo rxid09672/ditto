@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"image"
 	_ "image/png"
+	"math/rand"
 	"os"
 	"strings"
+	"time"
 )
 
 //go:embed ditto.png
@@ -150,8 +152,11 @@ func cleanASCIIArt(ascii string) string {
 	return strings.Join(cleaned, "\n") + "\n"
 }
 
-func printTextBanner() {
-	banner := `
+// getRandomBanner returns a random Ditto/Pokemon-themed ASCII banner
+func getRandomBanner() string {
+	banners := []string{
+		// Banner 1: Classic Ditto text
+		`
     ██████╗ ██╗████████╗████████╗ ██████╗ 
     ██╔══██╗██║╚══██╔══╝╚══██╔══╝██╔═══██╗
     ██║  ██║██║   ██║      ██║   ██║   ██║
@@ -167,7 +172,110 @@ func printTextBanner() {
     ╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝
     
     AUTHORIZED USE ONLY - SECURITY RESEARCH ONLY
-`
-	fmt.Println(banner)
+`,
+		// Banner 2: Ditto blob style
+		`
+    ╔═══════════════════════════════════════╗
+    ║                                       ║
+    ║         ╭─────────────╮              ║
+    ║        (   DITTO C2   )               ║
+    ║         ╰─────────────╯              ║
+    ║                                       ║
+    ║     ██████╗ ██╗████████╗             ║
+    ║     ██╔══██╗██║╚══██╔══╝             ║
+    ║     ██║  ██║██║   ██║                ║
+    ║     ██║  ██║██║   ██║                ║
+    ║     ██████╔╝██║   ██║                ║
+    ║     ╚═════╝ ╚═╝   ╚═╝                ║
+    ║                                       ║
+    ║   AUTHORIZED USE ONLY                ║
+    ╚═══════════════════════════════════════╝
+`,
+		// Banner 3: Pokeball inspired
+		`
+         ╭─────────────────────╮
+        ╱                       ╲
+       │    ╭─────────────╮    │
+       │   │    DITTO     │   │
+       │   │    C2 v1.0   │   │
+       │    ╰─────────────╯    │
+       │                        │
+       │   ██████╗ ██╗████████╗│
+       │   ██╔══██╗██║╚══██╔══╝│
+       │   ██║  ██║██║   ██║   │
+       │   ██║  ██║██║   ██║   │
+       │   ██████╔╝██║   ██║   │
+       │   ╚═════╝ ╚═╝   ╚═╝   │
+       │                        │
+        ╲                       ╱
+         ╰─────────────────────╯
+    
+    AUTHORIZED USE ONLY - SECURITY RESEARCH ONLY
+`,
+		// Banner 4: Minimalist
+		`
+    ┌─────────────────────────────────────┐
+    │                                     │
+    │         DITTO COMMAND & CONTROL     │
+    │                                     │
+    │              v1.0.0                 │
+    │                                     │
+    │     ██████╗ ██╗████████╗████████╗  │
+    │     ██╔══██╗██║╚══██╔══╝╚══██╔══╝  │
+    │     ██║  ██║██║   ██║      ██║     │
+    │     ██║  ██║██║   ██║      ██║     │
+    │     ██████╔╝██║   ██║      ██║     │
+    │     ╚═════╝ ╚═╝   ╚═╝      ╚═╝     │
+    │                                     │
+    │   AUTHORIZED USE ONLY               │
+    └─────────────────────────────────────┘
+`,
+		// Banner 5: Transform style (Ditto transforms!)
+		`
+    ╔════════════════════════════════════════╗
+    ║                                        ║
+    ║     ██████╗ ██╗████████╗████████╗    ║
+    ║     ██╔══██╗██║╚══██╔══╝╚══██╔══╝    ║
+    ║     ██║  ██║██║   ██║      ██║       ║
+    ║     ██║  ██║██║   ██║      ██║       ║
+    ║     ██████╔╝██║   ██║      ██║       ║
+    ║     ╚═════╝ ╚═╝   ╚═╝      ╚═╝       ║
+    ║                                        ║
+    ║     ═══>  TRANSFORMING  <═══           ║
+    ║                                        ║
+    ║     ╭─────────────╮                   ║
+    ║    │  C2 FRAMEWORK │                   ║
+    ║     ╰─────────────╯                   ║
+    ║                                        ║
+    ║   AUTHORIZED USE ONLY                 ║
+    ╚════════════════════════════════════════╝
+`,
+		// Banner 6: Circular blob (Ditto shape)
+		`
+           ╭───────────────╮
+          ╱                 ╲
+         │    ██████╗ ██╗    │
+         │   ██╔══██╗██║    │
+         │   ██║  ██║██║    │
+         │   ██║  ██║██║    │
+         │   ██████╔╝██║    │
+         │   ╚═════╝ ╚═╝    │
+         │                   │
+         │      DITTO C2     │
+         │                   │
+          ╲                 ╱
+           ╰───────────────╯
+    
+    AUTHORIZED USE ONLY - SECURITY RESEARCH ONLY
+`,
+	}
+	
+	// Seed random number generator with current time
+	rand.Seed(time.Now().UnixNano())
+	return banners[rand.Intn(len(banners))]
+}
+
+func printTextBanner() {
+	fmt.Println(getRandomBanner())
 }
 
