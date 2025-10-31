@@ -136,7 +136,7 @@ func (is *InteractiveServer) startPersistentJobs() {
 		if dbJob.Status == "running" {
 			// Reconstruct address
 			addr := fmt.Sprintf("%s:%d", dbJob.Host, dbJob.Port)
-			
+
 			// Start the listener
 			is.logger.Info("Auto-starting persistent listener: %s on %s", dbJob.Type, addr)
 			if err := is.startListenerJob(dbJob.Type, addr, dbJob); err != nil {
@@ -153,7 +153,7 @@ func (is *InteractiveServer) startPersistentJobs() {
 func (is *InteractiveServer) startListenerJob(listenerType, addr string, dbJob *database.ListenerJob) error {
 	// Use the existing handleListen logic but with the database job info
 	jobName := fmt.Sprintf("%s listener on %s", listenerType, addr)
-	
+
 	var startFunc func() error
 	switch listenerType {
 	case "http":
@@ -168,7 +168,7 @@ func (is *InteractiveServer) startListenerJob(listenerType, addr string, dbJob *
 
 	// Add job to manager
 	job := is.jobManager.AddJob(jobs.JobTypeListener, jobName, startFunc)
-	
+
 	// Update database job with new JobID and status
 	dbJob.JobID = job.ID
 	dbJob.Status = "running"
@@ -505,7 +505,7 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 		}
 		fmt.Printf("[+] Server started successfully on %s\n", listenAddr)
 		fmt.Println("[*] Press Ctrl+C or use 'stop-server' to stop")
-		
+
 		// Start persistent jobs that were running before
 		is.startPersistentJobs()
 		return nil
@@ -676,7 +676,7 @@ func (is *InteractiveServer) saveListenerJobToDB(job *jobs.Job, listenerType, ad
 				existingJob.CertPath = is.config.Server.TLSCertPath
 				existingJob.KeyPath = is.config.Server.TLSKeyPath
 				existingJob.Secure = listenerType == "https" || listenerType == "mtls"
-				
+
 				if err := database.UpdateListenerJob(existingJob); err != nil {
 					return fmt.Errorf("failed to update listener job in database: %w\n"+
 						"  Note: Listener may still be running, but state won't persist", err)
@@ -1385,7 +1385,7 @@ func (is *InteractiveServer) handleGenerate(args []string) error {
 func (is *InteractiveServer) printJobs() {
 	// Get active jobs from job manager
 	activeJobs := is.jobManager.ListJobs()
-	
+
 	// Get all persistent jobs from database
 	dbJobs, err := database.GetListenerJobs()
 	if err != nil {
@@ -1441,7 +1441,7 @@ func (is *InteractiveServer) printJobs() {
 	for _, job := range allJobs {
 		sortedJobs = append(sortedJobs, job)
 	}
-	
+
 	// Sort by ID
 	sort.Slice(sortedJobs, func(i, j int) bool {
 		return sortedJobs[i].ID < sortedJobs[j].ID
@@ -1459,7 +1459,7 @@ func (is *InteractiveServer) printJobs() {
 			statusColor = "\033[91m" // Red
 		}
 		resetColor := "\033[0m"
-		
+
 		t.AppendRow(table.Row{
 			job.ID,
 			string(job.Type),

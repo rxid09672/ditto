@@ -86,37 +86,9 @@ func ImageToASCII(imgPath string, width int) (string, error) {
 	return result.String(), nil
 }
 
-// PrintDittoBanner prints the ditto.png image as ASCII art
+// PrintDittoBanner prints a random Ditto/Pokemon-themed ASCII banner
 func PrintDittoBanner() error {
-	// Try to read embedded image first
-	embeddedData, err := dittoPNG.ReadFile("ditto.png")
-	if err == nil {
-		// Write embedded image to temp file
-		tmpFile := "/tmp/ditto_banner.png"
-		if err := os.WriteFile(tmpFile, embeddedData, 0644); err == nil {
-			defer os.Remove(tmpFile)
-			ascii, err := ImageToASCII(tmpFile, 50) // Reduced width for tighter output
-			if err == nil {
-				// Clean up the output - remove excessive blank lines
-				cleaned := cleanASCIIArt(ascii)
-				fmt.Print(cleaned)
-				return nil
-			}
-		}
-	}
-
-	// Fallback to local file
-	if _, err := os.Stat("ditto.png"); err == nil {
-		ascii, err := ImageToASCII("ditto.png", 50) // Reduced width
-		if err != nil {
-			return err
-		}
-		cleaned := cleanASCIIArt(ascii)
-		fmt.Print(cleaned)
-		return nil
-	}
-
-	// Fallback to text banner if image not found
+	// Use random text banners for variety
 	printTextBanner()
 	return nil
 }
@@ -270,9 +242,9 @@ func getRandomBanner() string {
 `,
 	}
 	
-	// Seed random number generator with current time
-	rand.Seed(time.Now().UnixNano())
-	return banners[rand.Intn(len(banners))]
+	// Use time-based seed for random selection
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return banners[r.Intn(len(banners))]
 }
 
 func printTextBanner() {
