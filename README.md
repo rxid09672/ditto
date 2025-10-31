@@ -42,9 +42,22 @@
 - ✅ **Process Management** - List, find, and manipulate processes
 
 ### Privilege Escalation
-- ✅ **GetSystem** - SYSTEM elevation
+- ✅ **GetSystem** - Automated SYSTEM elevation with intelligence gathering
+  - AccessChk-based permission discovery before escalation
+  - Named pipe enumeration for vulnerable pipes
+  - Intelligent merging of AccessChk and PrivescCheck findings
+  - Automatic pipe discovery and exploitation
+  - NamedPipe and Token manipulation techniques
+- ✅ **GetSystemSafe** - Stealthy LOLBin-only privilege escalation
+  - Pure Windows native tools (no PowerShell modules)
+  - Optional AccessChk discovery with graceful degradation
+  - Named pipe intelligence gathering
+  - Multiple escalation methods sorted by noise level
+  - Registry hijack techniques (Event Viewer, FodHelper, etc.)
+  - Service creation using PsExec-inspired mechanism
 - ✅ **Token Manipulation** - Impersonation and token theft
 - ✅ **MakeToken** - Credential-based token creation
+- ✅ **Intelligence Integration** - Pre-escalation vulnerability discovery
 
 ### C2 Capabilities
 - ✅ **HTTP/HTTPS Transport** - Encrypted communication
@@ -119,9 +132,25 @@
 - ✅ **File Transfer** - Upload/download with path sanitization
 - ✅ **Command Injection Protection** - Pattern detection and blocking
 
----
+## 🆕 Recent Updates
 
-## 📦 Installation
+### Sysinternals Privilege Escalation Enhancements
+
+**New Features:**
+- **AccessChk Integration** - Pre-escalation permission discovery using Sysinternals AccessChk
+- **Named Pipe Enumeration** - Automated discovery of vulnerable named pipes before escalation
+- **Intelligence Merging** - Combines AccessChk findings with PrivescCheck recommendations
+- **Enhanced GetSystem** - Automated escalation chain with intelligence gathering
+- **Enhanced GetSystemSafe** - LOLBin-only escalation with optional intelligence gathering
+
+**Technical Details:**
+- AccessChk discovery phase runs before PrivescCheck
+- Named pipe enumeration identifies exploitable pipes
+- Discovered pipes automatically used in NamedPipe technique
+- Graceful degradation if Sysinternals tools unavailable
+- Novel applications based on Sysinternals research
+
+---
 
 ### Prerequisites
 - Go 1.24 or later
@@ -316,6 +345,22 @@ err := pe.GetSystem("winlogon.exe")
 err := pe.ImpersonateUser("username")
 err := pe.MakeToken("user", "domain", "password")
 ```
+
+#### Advanced Escalation Features
+
+**GetSystem with Intelligence Gathering:**
+- Pre-escalation AccessChk discovery (finds weak permissions)
+- Named pipe enumeration (discovers vulnerable pipes)
+- Automatic intelligence merging with PrivescCheck
+- Uses discovered pipes in NamedPipe technique
+- Graceful degradation if tools unavailable
+
+**GetSystemSafe (LOLBin-only):**
+- Pure native Windows tools (no PowerShell)
+- Optional AccessChk discovery for intelligence
+- Multiple escalation methods (sorted by stealth)
+- Registry hijack techniques
+- Service creation with PsExec-inspired mechanism
 
 ---
 
