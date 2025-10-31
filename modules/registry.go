@@ -443,11 +443,21 @@ func substituteTemplate(template string, params map[string]string) string {
 func buildParamsString(params map[string]string) string {
 	var parts []string
 	
+	// Internal parameters that should not be passed to PowerShell functions
+	internalParams := map[string]bool{
+		"Agent":      true,
+		"session_id": true,
+		"SessionID":  true,
+		"SessionId":  true,
+	}
+	
 	for key, value := range params {
-		if key == "Agent" || value == "" {
+		// Skip internal parameters and empty values
+		if internalParams[key] || value == "" {
 			continue
 		}
 		
+		// For boolean values, just include the flag
 		if value == "True" || value == "False" {
 			parts = append(parts, fmt.Sprintf("-%s", key))
 		} else {

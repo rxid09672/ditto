@@ -1316,9 +1316,29 @@ func (is *InteractiveServer) printSessions() {
 		return
 	}
 
+	// Check for dead sessions (haven't been seen in 5 minutes)
+	now := time.Now()
+	deadTimeout := 5 * time.Minute
+	for _, session := range sessionList {
+		if now.Sub(session.LastSeen) > deadTimeout {
+			session.SetState(core.SessionStateDead)
+		}
+	}
+
 	t := table.NewWriter()
 	t.SetStyle(table.StyleColoredBright)
-	t.AppendHeader(table.Row{"ID", "Type", "Transport", "Remote Addr", "Connected", "Last Seen", "State"})
+	
+	// Purple header using ANSI codes
+	headerRow := table.Row{
+		"\033[95mID\033[0m",
+		"\033[95mType\033[0m",
+		"\033[95mTransport\033[0m",
+		"\033[95mRemote Addr\033[0m",
+		"\033[95mConnected\033[0m",
+		"\033[95mLast Seen\033[0m",
+		"\033[95mState\033[0m",
+	}
+	t.AppendHeader(headerRow)
 
 	for _, session := range sessionList {
 		// Get remote address from metadata if not set directly
@@ -1331,15 +1351,29 @@ func (is *InteractiveServer) printSessions() {
 			}
 		}
 		
-		t.AppendRow(table.Row{
-			shortID(session.ID),
-			session.Type,
-			session.Transport,
-			remoteAddr,
-			session.ConnectedAt.Format("15:04:05"),
-			session.LastSeen.Format("15:04:05"),
-			session.GetState(),
-		})
+		state := session.GetState()
+		stateStr := string(state)
+		
+		// Color code rows: green for active, red for dead
+		var colorCode string
+		if state == core.SessionStateDead {
+			colorCode = "\033[91m" // Red
+		} else {
+			colorCode = "\033[92m" // Green
+		}
+		resetCode := "\033[0m"
+		
+		row := table.Row{
+			colorCode + shortID(session.ID) + resetCode,
+			colorCode + string(session.Type) + resetCode,
+			colorCode + session.Transport + resetCode,
+			colorCode + remoteAddr + resetCode,
+			colorCode + session.ConnectedAt.Format("15:04:05") + resetCode,
+			colorCode + session.LastSeen.Format("15:04:05") + resetCode,
+			colorCode + stateStr + resetCode,
+		}
+		
+		t.AppendRow(row)
 	}
 
 	fmt.Println(t.Render())
@@ -1638,20 +1672,34 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Printf("  %d. %s (%d modules)\n", i+1, category, len(mods))
 			}
 			
-			fmt.Println("\n[*] To view modules in a category, use: modules <category>")
+			fmt.Println("\n[*] To view modules in a category, use: modules <category> or modules <number>")
 			fmt.Println("    Example: modules privesc")
+			fmt.Println("    Example: modules 1")
 			fmt.Println("    Or use: modules <module_id> to get details")
 			fmt.Println("    Example: modules powershell/privesc/getsystem")
 			
 			// If category specified, show modules in that category
 			if len(args) > 0 {
-				categoryName := strings.ToLower(args[0])
-				// Try to find matching category
+				arg := args[0]
 				var foundCategory string
-				for cat := range byCategory {
-					if strings.ToLower(cat) == categoryName {
-						foundCategory = cat
-						break
+				
+				// Check if it's a numeric category selection
+				if categoryNum, err := strconv.Atoi(arg); err == nil {
+					// It's a number - find category by index
+					if categoryNum > 0 && categoryNum <= len(categories) {
+						foundCategory = categories[categoryNum-1]
+					} else {
+						fmt.Printf("[!] Invalid category number: %d (must be between 1 and %d)\n", categoryNum, len(categories))
+						continue
+					}
+				} else {
+					// Try to find matching category by name
+					categoryName := strings.ToLower(arg)
+					for cat := range byCategory {
+						if strings.ToLower(cat) == categoryName {
+							foundCategory = cat
+							break
+						}
 					}
 				}
 				
@@ -1661,28 +1709,33 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 					sort.Slice(mods, func(i, j int) bool {
 						return mods[i].ID < mods[j].ID
 					})
-					for _, mod := range mods {
-						fmt.Printf("  %s\n", mod.ID)
+					for i, mod := range mods {
+						// Show module ID (not path) with index
+						fmt.Printf("  %d. ID: %s\n", i+1, mod.ID)
+						if mod.Name != "" && mod.Name != mod.ID {
+							fmt.Printf("     Name: %s\n", mod.Name)
+						}
 						if mod.Description != "" {
 							// Truncate long descriptions
 							desc := mod.Description
 							if len(desc) > 80 {
 								desc = desc[:77] + "..."
 							}
-							fmt.Printf("    %s\n", desc)
+							fmt.Printf("     Description: %s\n", desc)
 						}
 						fmt.Println()
 					}
 				} else {
 					// Try to find module by ID
-					moduleID := args[0]
+					moduleID := arg
 					module, found := is.moduleRegistry.GetModuleByPath(moduleID)
 					if !found {
 						module, found = is.moduleRegistry.GetModule(moduleID)
 					}
 					
 					if found {
-						fmt.Printf("\n[*] Module: %s\n\n", module.ID)
+						fmt.Printf("\n[*] Module Details:\n\n")
+						fmt.Printf("  ID: %s\n", module.ID)
 						fmt.Printf("  Name: %s\n", module.Name)
 						if module.Description != "" {
 							fmt.Printf("  Description: %s\n", module.Description)
@@ -1708,7 +1761,8 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 							}
 						}
 					} else {
-						fmt.Printf("[!] Category or module not found: %s\n", args[0])
+						fmt.Printf("[!] Category or module not found: %s\n", arg)
+						fmt.Println("    Use 'modules' to see available categories")
 					}
 				}
 			}
@@ -2000,6 +2054,12 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 			"  Session may have disconnected. Use 'sessions' to list active sessions", shortID(sessionID))
 	}
 
+	// Mark session as dead first to prevent reconnection
+	session, ok := is.sessionMgr.GetSession(sessionID)
+	if ok {
+		session.SetState(core.SessionStateDead)
+	}
+	
 	// Queue kill task for session
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 	task := &tasks.Task{
@@ -2017,11 +2077,9 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 	// Wait a moment for the kill task to be sent to the implant
 	time.Sleep(2 * time.Second)
 	
-	// Remove session from manager
-	is.sessionMgr.RemoveSession(sessionID)
-	fmt.Printf("[+] Session %s removed\n", shortID(sessionID))
-	
-	// Note: Sessions in transport layers will naturally timeout when implant stops beaconing
+	// Mark session as dead (don't remove immediately so it shows in sessions list)
+	// Sessions will be cleaned up by CleanupDeadSessions after timeout
+	fmt.Printf("[+] Session %s marked as dead\n", shortID(sessionID))
 	
 	return nil
 }
