@@ -2665,12 +2665,59 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 			if getSystemTask != nil && getSystemTask.Status == "completed" {
 				if resultMap, ok := getSystemTask.Result.(map[string]interface{}); ok {
 					if resultValue, ok := resultMap["result"].(string); ok {
-						// Check if we got SYSTEM
-						if strings.Contains(strings.ToLower(resultValue), "system") ||
-							strings.Contains(strings.ToLower(resultValue), "nt authority") {
+						// Parse the output to determine if Get-System succeeded
+						// Get-System shows "Running as: DOMAIN\USER" - if it's SYSTEM, it succeeded
+						lines := strings.Split(resultValue, "\n")
+						runningAsUser := ""
+						hasFailure := false
+						
+						for _, line := range lines {
+							lineLower := strings.ToLower(line)
+							// Check for explicit failure messages
+							if strings.Contains(lineLower, "did not achieve system privileges") ||
+								strings.Contains(lineLower, "openscmanager failed") ||
+								(strings.Contains(lineLower, "warning") && strings.Contains(lineLower, "elevation")) {
+								hasFailure = true
+							}
+							// Extract "Running as:" line
+							if strings.Contains(lineLower, "running as:") {
+								// Extract username after "Running as: "
+								parts := strings.SplitN(line, ":", 2)
+								if len(parts) == 2 {
+									runningAsUser = strings.TrimSpace(parts[1])
+								}
+							}
+						}
+						
+						// Determine success: must be running as SYSTEM and no failure indicators
+						runningAsSystem := false
+						if runningAsUser != "" {
+							userLower := strings.ToLower(runningAsUser)
+							// Check if it's actually SYSTEM
+							if strings.Contains(userLower, "nt authority\\system") ||
+								(userLower == "system") ||
+								(strings.Contains(userLower, "system") && !strings.Contains(userLower, "\\")) {
+								runningAsSystem = true
+							}
+						}
+						
+						// Success = running as SYSTEM AND no failure indicators
+						if runningAsSystem && !hasFailure {
 							fmt.Printf("[+] Successfully escalated to SYSTEM using %s technique!\n", technique)
+							fmt.Printf("[+] Running as: %s\n", runningAsUser)
 							escalatedToSystem = true
 							break
+						} else {
+							// Failed - show why
+							if hasFailure {
+								fmt.Printf("[!] Get-System failed: Elevation did not achieve SYSTEM privileges\n")
+							} else if runningAsUser != "" {
+								fmt.Printf("[!] Get-System failed: Still running as %s (not SYSTEM)\n", runningAsUser)
+							} else {
+								fmt.Printf("[!] Get-System failed: Could not determine result\n")
+							}
+							// Try next technique
+							continue
 						}
 					}
 				}
