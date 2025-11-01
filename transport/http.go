@@ -356,7 +356,7 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&metadata); err == nil {
 			session.Metadata = metadata
 			ht.logger.Debug("Received metadata for session %s: %v", sessionID, metadata)
-		} else if err.Error() != "EOF" {
+		} else if err != nil && err.Error() != "EOF" {
 			ht.logger.Debug("Failed to decode metadata for session %s: %v", sessionID, err)
 		}
 	}
@@ -400,7 +400,7 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	ht.logger.Debug("Beacon response for session %s: session_id=%s, tasks=%d, sleep=%.2fs, jitter=%.2f", 
-		sessionID, sessionID, len(pendingTasks), ht.config.Communication.Sleep.Seconds(), ht.config.Communication.Jitter)
+		sessionID, sessionID, len(pendingTasks), adaptiveSleep, ht.config.Communication.Jitter)
 	
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -574,6 +574,9 @@ func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Mark session as upgraded to interactive
+	if session.Metadata == nil {
+		session.Metadata = make(map[string]interface{})
+	}
 	session.Metadata["upgraded"] = true
 	session.Metadata["upgraded_at"] = time.Now()
 	ht.sessionsMu.Unlock()
@@ -587,7 +590,10 @@ func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		ht.logger.Error("Failed to encode upgrade response: %v", err)
+		return
+	}
 }
 
 func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
