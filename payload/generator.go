@@ -1150,17 +1150,22 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		// Execute PowerShell or Python script
 		// Use temp file approach to avoid command line length limits
 		var tmpFile string
-		var fileExt string
 		if isPowerShell {
-			fileExt = ".ps1"
 			tmpFile = filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.ps1", time.Now().UnixNano()))
 		} else if isPython {
-			fileExt = ".py"
 			tmpFile = filepath.Join(os.TempDir(), fmt.Sprintf("ditto_%d.py", time.Now().UnixNano()))
 		}
 		
 		{{if .Debug}}
-		debugLog("Writing %s script to temp file: %s", strings.ToUpper(fileExt[1:]), tmpFile)
+		var fileExt string
+		if isPowerShell {
+			fileExt = ".ps1"
+		} else if isPython {
+			fileExt = ".py"
+		}
+		if fileExt != "" {
+			debugLog("Writing %s script to temp file: %s", strings.ToUpper(fileExt[1:]), tmpFile)
+		}
 		{{end}}
 		
 		// Write script to temp file
