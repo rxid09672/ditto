@@ -25,5 +25,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/praetorian-inc/goffloader v0.0.0-20250222211414-7a1519bb384d // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 )

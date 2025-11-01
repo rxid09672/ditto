@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -831,6 +832,11 @@ func (is *InteractiveServer) startHTTPListener(addr, jobName string) func() erro
 			return "", fmt.Errorf("module not found: %s", moduleID)
 		}
 
+		// Handle BOF modules differently
+		if module.Language == modules.LanguageBOF {
+			return is.processBOFModule(module, params)
+		}
+
 		// Process module with provided params (or empty if none)
 		if params == nil {
 			params = make(map[string]string)
@@ -934,6 +940,11 @@ func (is *InteractiveServer) startHTTPSListener(addr, jobName string) func() err
 		}
 		if !ok {
 			return "", fmt.Errorf("module not found: %s", moduleID)
+		}
+
+		// Handle BOF modules differently
+		if module.Language == modules.LanguageBOF {
+			return is.processBOFModule(module, params)
 		}
 
 		// Process module with provided params (or empty if none)
@@ -4976,4 +4987,82 @@ func (is *InteractiveServer) syncSessionToManager(id string, serverSession *tran
 		// Note: SessionOpened event is automatically published by SessionManager.AddSession()
 		// Reactions system subscribes to EventBroker and handles it automatically
 	}
+}
+
+// processBOFModule processes a BOF module and returns JSON with BOF data
+func (is *InteractiveServer) processBOFModule(module *modules.EmpireModule, params map[string]string) (string, error) {
+	if module.BOF == nil {
+		return "", fmt.Errorf("module %s is not a BOF module", module.ID)
+	}
+
+	// Determine architecture from params (default to x64)
+	arch := "x64"
+	if archParam, ok := params["Architecture"]; ok {
+		arch = strings.ToLower(archParam)
+		if arch != "x64" && arch != "x86" {
+			return "", fmt.Errorf("invalid architecture: %s (must be x64 or x86)", archParam)
+		}
+	}
+
+	// Get BOF file path based on architecture
+	var bofPath string
+	if arch == "x64" {
+		bofPath = module.BOF.X64
+	} else {
+		bofPath = module.BOF.X86
+	}
+
+	if bofPath == "" {
+		return "", fmt.Errorf("BOF file path not specified for architecture %s", arch)
+	}
+
+	// Resolve BOF file path relative to empire-modules directory
+	possiblePaths := []string{
+		bofPath,
+		filepath.Join("empire-modules", bofPath),
+		filepath.Join("modules", "empire", bofPath),
+	}
+
+	var bofData []byte
+	var err error
+	var foundPath string
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			foundPath = path
+			bofData, err = os.ReadFile(path)
+			if err == nil {
+				break
+			}
+		}
+	}
+
+	if foundPath == "" {
+		return "", fmt.Errorf("BOF file not found: %s (tried: %v)", bofPath, possiblePaths)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read BOF file %s: %w", foundPath, err)
+	}
+
+	// Get entry point (default to "go")
+	entryPoint := module.BOF.EntryPoint
+	if entryPoint == "" {
+		entryPoint = "go"
+	}
+
+	// Get format string
+	formatString := module.BOF.FormatString
+
+	// Create response JSON
+	response := map[string]interface{}{
+		"bof_data":     base64.StdEncoding.EncodeToString(bofData),
+		"entry_point":  entryPoint,
+		"format_string": formatString,
+	}
+
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal BOF response: %w", err)
+	}
+
+	return string(jsonData), nil
 }

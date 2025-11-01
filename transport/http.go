@@ -628,10 +628,16 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Validate language prefix (powershell, python, etc.)
-	validLanguages := map[string]bool{"powershell": true, "python": true}
+	// Validate language prefix (powershell, python, bof, etc.)
+	validLanguages := map[string]bool{"powershell": true, "python": true, "bof": true}
 	if !validLanguages[parts[0]] {
 		http.Error(w, "Invalid module language", http.StatusBadRequest)
+		return
+	}
+	
+	// Handle BOF modules differently
+	if parts[0] == "bof" {
+		ht.handleBOFModule(w, r, moduleID, taskID, params)
 		return
 	}
 	
@@ -691,6 +697,44 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	ht.logger.Debug("Module script sent for %s", moduleID)
+}
+
+func (ht *HTTPTransport) handleBOFModule(w http.ResponseWriter, r *http.Request, moduleID string, taskID string, params map[string]string) {
+	ht.logger.Debug("BOF module request for %s", moduleID)
+	
+	// Get module from registry to access BOF metadata
+	// We need access to module registry - this will be set via SetModuleGetterWithParams
+	// For now, we'll need to modify the getter to return BOF data
+	
+	// Try to get module script/metadata using the getter
+	// The getter should detect BOF and return appropriate data
+	moduleData, err := ht.moduleGetter(moduleID, params)
+	if err != nil {
+		ht.logger.Error("Failed to get BOF module %s: %v", moduleID, err)
+		if strings.Contains(err.Error(), "module not found") {
+			http.Error(w, fmt.Sprintf("Module not found: %s", moduleID), http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to process BOF module %s: %v", moduleID, err), http.StatusInternalServerError)
+		}
+		return
+	}
+	
+	// For BOF modules, moduleData should be JSON with bof_data, format_string, entry_point
+	// Parse it to extract fields
+	var bofResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(moduleData), &bofResponse); err != nil {
+		// If it's not JSON, treat as error
+		http.Error(w, fmt.Sprintf("Invalid BOF module data format: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(bofResponse); err != nil {
+		ht.logger.Error("Failed to encode BOF module response: %v", err)
+		return
+	}
+	
+	ht.logger.Debug("BOF module data sent for %s", moduleID)
 }
 
 func (ht *HTTPTransport) getPendingTasks(sessionID string) []map[string]interface{} {
