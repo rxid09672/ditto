@@ -2490,12 +2490,12 @@ func (is *InteractiveServer) startInteractiveShell(sessionID, shellCmd string) e
 		timeout := 30 * time.Second
 		start := time.Now()
 		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
 
 		resultReceived := false
 		for range ticker.C {
 			task := is.taskQueue.Get(taskID)
 			if task == nil {
+				ticker.Stop()
 				break // Task removed
 			}
 
@@ -2508,6 +2508,7 @@ func (is *InteractiveServer) startInteractiveShell(sessionID, shellCmd string) e
 							fmt.Println()
 						}
 						resultReceived = true
+						ticker.Stop()
 						break
 					}
 				}
@@ -2515,6 +2516,7 @@ func (is *InteractiveServer) startInteractiveShell(sessionID, shellCmd string) e
 
 			if time.Since(start) > timeout {
 				fmt.Printf("[!] Command timed out after %v\n", timeout)
+				ticker.Stop()
 				break
 			}
 		}
