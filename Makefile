@@ -1,4 +1,4 @@
-.PHONY: build clean test install
+.PHONY: build clean test install cover pretty
 
 build:
 	@echo "Building Ditto Framework..."
@@ -12,6 +12,9 @@ clean:
 test:
 	@echo "Running tests..."
 	@go test -v ./...
+
+cover: test-coverage
+	@echo "Coverage report generated in coverage.html"
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -32,6 +35,10 @@ test-all: test test-coverage test-race test-bench
 
 test-comprehensive:
 	@if [ -f test.sh ]; then ./test.sh; else echo "test.sh not found (gitignored)"; fi
+
+pretty:
+	@echo "Demonstrating pretty output..."
+	@DITTO_PRETTY=1 ./bin/ditto --help || go run . --pretty --help
 
 install:
 	@echo "Installing..."
