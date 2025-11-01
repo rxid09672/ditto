@@ -158,8 +158,10 @@ func parseBinaryData(arg string) ([]byte, error) {
 // hexDecode attempts to decode hex string
 func hexDecode(s string) ([]byte, error) {
 	// Remove common hex prefixes
-	s = bytes.TrimPrefix(bytes.TrimPrefix([]byte(s), []byte("0x")), []byte("0X"))
-	s = bytes.TrimPrefix([]byte(s), []byte("\\x"))
+	sBytes := []byte(s)
+	sBytes = bytes.TrimPrefix(bytes.TrimPrefix(sBytes, []byte("0x")), []byte("0X"))
+	sBytes = bytes.TrimPrefix(sBytes, []byte("\\x"))
+	s = string(sBytes)
 	
 	// Try to decode
 	var result []byte

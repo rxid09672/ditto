@@ -57,6 +57,7 @@ type InteractiveServer struct {
 	syncCancel          context.CancelFunc                  // Context cancel function for syncSessions goroutine
 	httpTransports      map[string]*transport.HTTPTransport // Map of addr -> HTTPTransport for session syncing
 	httpTransportsMu    sync.RWMutex                        // Mutex for httpTransports map
+	markTaskPending     func(string)                         // Function to mark task as pending for auto-display
 }
 
 // NewInteractiveServer creates a new interactive server
@@ -123,6 +124,11 @@ func (is *InteractiveServer) startEventHandlers() {
 		is.logger.Error("Failed to subscribe to EventBroker")
 		return
 	}
+	
+	// Track pending tasks for current session to auto-display results
+	pendingTasks := make(map[string]bool) // taskID -> isWaiting
+	var pendingMu sync.Mutex
+	
 	go func() {
 		defer func() {
 			if events != nil {
@@ -132,6 +138,37 @@ func (is *InteractiveServer) startEventHandlers() {
 		for event := range events {
 			// Event logging
 			is.logger.Debug("Event: %s", event.EventType)
+
+			// Handle task completion events - auto-display results
+			if event.Task != nil {
+				taskID := ""
+				if id, ok := event.Metadata["task_id"].(string); ok {
+					taskID = id
+				}
+				
+				pendingMu.Lock()
+				shouldDisplay := pendingTasks[taskID]
+				if shouldDisplay {
+					delete(pendingTasks, taskID) // Remove from pending
+				}
+				pendingMu.Unlock()
+				
+				if shouldDisplay && taskID != "" {
+					// Auto-display result for tasks we're waiting on
+					if resultValue, ok := event.Metadata["result"].(string); ok {
+						fmt.Printf("\n[*] Task %s completed:\n", shortTaskID(taskID))
+						if strings.Contains(strings.ToLower(resultValue), "error:") {
+							fmt.Printf("[!] %s\n", resultValue)
+						} else {
+							fmt.Println(resultValue)
+						}
+						// Restore prompt
+						if is.input != nil {
+							is.input.SetPrompt(getPrompt(is.currentSession))
+						}
+					}
+				}
+			}
 
 			// Log session events
 			if event.Session != nil {
@@ -157,6 +194,13 @@ func (is *InteractiveServer) startEventHandlers() {
 			}
 		}
 	}()
+	
+	// Helper function to mark task as pending
+	is.markTaskPending = func(taskID string) {
+		pendingMu.Lock()
+		pendingTasks[taskID] = true
+		pendingMu.Unlock()
+	}
 }
 
 func (is *InteractiveServer) restoreListenerJobs() {
@@ -1821,11 +1865,12 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("    Example: shell whoami")
 				continue
 			}
-			taskID, err := is.executeShellCommand(sessionID, strings.Join(args, " "))
+			_, err := is.executeShellCommand(sessionID, strings.Join(args, " "))
 			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			} else {
-				is.pollTaskResult(sessionID, taskID)
+				// Task queued - result will be displayed automatically via events
+				fmt.Printf("[*] Task queued. Result will appear automatically when ready.\n")
 			}
 		case "module", "run":
 			if len(args) < 1 {
@@ -1835,12 +1880,12 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				fmt.Println("    Use 'modules' command to list available modules")
 				continue
 			}
-			taskID, err := is.executeModule(sessionID, args[0], args[1:])
+			_, err := is.executeModule(sessionID, args[0], args[1:])
 			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			} else {
-				// Module execution is asynchronous - task is queued, result will be available via 'task' command
-				fmt.Printf("[*] Module queued. Use 'task %s' to check status, or 'tasks' to list all tasks\n", taskID)
+				// Module execution is asynchronous - result will be displayed automatically via events
+				fmt.Printf("[*] Module queued. Result will appear automatically when ready.\n")
 			}
 		case "download":
 			if len(args) < 1 {
@@ -2197,15 +2242,15 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			}
 
 			if len(sessionTasks) > 0 {
-				fmt.Println("[*] Tip: Use 'task <number>' or 'task <task_id>' to view full results")
-				fmt.Println("    Example: 'task 1' or 'task task-1761879567706376329'")
+				fmt.Println("[*] Tip: Use 'task <number>' to view results (e.g., 'task 1')")
+				fmt.Println("    Results also appear automatically when tasks complete")
 			}
 		case "task":
 			if len(args) < 1 {
 				fmt.Println("[!] Error: Task ID is required")
-				fmt.Println("    Usage: task <task_id> or task <number>")
-				fmt.Println("    Example: task task-1761878796775293449")
+				fmt.Println("    Usage: task <number> or task <task_id>")
 				fmt.Println("    Example: task 1 (to view first task from 'tasks' list)")
+				fmt.Println("    Tip: Just use the number from 'tasks' command for quick access")
 				fmt.Println("    Use 'tasks' to list all tasks")
 				continue
 			}
@@ -2247,7 +2292,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				if task == nil {
 					fmt.Printf("[!] Task not found: %s\n", taskID)
 					fmt.Println("    Use 'tasks' to list all tasks")
-					fmt.Println("    Note: Tasks are removed 5 minutes after completion")
+					fmt.Println("    Note: Tasks are removed 30 seconds after completion")
 					continue
 				}
 
@@ -2348,11 +2393,12 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			fmt.Println("  back, exit       - Exit session")
 		default:
 			// Default to shell command
-			taskID, err := is.executeShellCommand(sessionID, line)
+			_, err := is.executeShellCommand(sessionID, line)
 			if err != nil {
 				fmt.Printf("[!] Error: %v\n", err)
 			} else {
-				is.pollTaskResult(sessionID, taskID)
+				// Task queued - result will be displayed automatically via events
+				fmt.Printf("[*] Task queued. Result will appear automatically when ready.\n")
 			}
 		}
 	}
@@ -2461,6 +2507,12 @@ func (is *InteractiveServer) executeShellCommand(sessionID, command string) (str
 	}
 	is.server.EnqueueTask(task)
 	fmt.Printf("[+] Queued command: %s (task: %s)\n", command, taskID)
+	
+	// Mark task as pending for auto-display when result arrives
+	if is.markTaskPending != nil {
+		is.markTaskPending(taskID)
+	}
+	
 	return taskID, nil
 }
 
@@ -2555,6 +2607,12 @@ func (is *InteractiveServer) executeModule(sessionID, moduleID string, args []st
 	is.logger.Info("[MODULE] Queued module: %s (session: %s, task: %s)",
 		moduleID, shortID(sessionID), taskID)
 	fmt.Printf("[+] Queued module: %s (session: %s, task: %s)\n", moduleID, shortID(sessionID), taskID)
+	
+	// Mark task as pending for auto-display when result arrives
+	if is.markTaskPending != nil {
+		is.markTaskPending(taskID)
+	}
+	
 	return taskID, nil
 }
 
@@ -4730,6 +4788,14 @@ func shortID(id string) string {
 		return id
 	}
 	return id[:8]
+}
+
+// shortTaskID returns a shortened task ID for display (removes "task-" prefix)
+func shortTaskID(taskID string) string {
+	if strings.HasPrefix(taskID, "task-") {
+		return taskID[5:] // Remove "task-" prefix
+	}
+	return shortID(taskID)
 }
 
 // getPrompt returns the prompt string for the current session

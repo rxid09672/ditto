@@ -528,10 +528,40 @@ func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
 			task := ht.taskQueue.Get(taskID)
 			if task != nil {
 				ht.taskQueue.SetResult(taskID, result)
+				
+				// Publish task completion event for event-driven architecture
+				if taskResult, ok := result["result"].(string); ok {
+					// Determine if task succeeded or failed
+					isError := strings.Contains(strings.ToLower(taskResult), "error:") ||
+						strings.Contains(strings.ToLower(taskResult), "failed")
+					
+					if isError {
+						core.EventBroker.Publish(core.Event{
+							EventType: core.EventTaskFailed,
+							Task:      task,
+							Metadata: map[string]interface{}{
+								"task_id": taskID,
+								"session_id": sessionID,
+								"result": taskResult,
+							},
+						})
+					} else {
+						core.EventBroker.Publish(core.Event{
+							EventType: core.EventTaskCompleted,
+							Task:      task,
+							Metadata: map[string]interface{}{
+								"task_id": taskID,
+								"session_id": sessionID,
+								"result": taskResult,
+							},
+						})
+					}
+				}
+				
 				ht.logger.Debug("Task %s result stored, scheduling removal", taskID)
-				// Remove task immediately after storing result
+				// Keep tasks longer (30 seconds) to allow users to check results
 				go func() {
-					time.Sleep(1 * time.Second) // Brief delay to allow result processing
+					time.Sleep(30 * time.Second) // Increased from 1 second to 30 seconds
 					ht.taskQueue.Remove(taskID)
 					ht.logger.Debug("Task %s removed after result processing", taskID)
 				}()
@@ -635,22 +665,9 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Handle BOF modules differently
-	if parts[0] == "bof" {
-		ht.handleBOFModule(w, r, moduleID, taskID, params)
-		return
-	}
-	
 	// Get task ID from query parameter to retrieve task parameters
 	taskID := r.URL.Query().Get("task_id")
 	sessionID := r.Header.Get("X-Session-ID")
-	
-	ht.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
-	
-	if ht.moduleGetter == nil {
-		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
-		return
-	}
 	
 	// Extract parameters from task if task ID provided
 	params := make(map[string]string)
@@ -667,6 +684,19 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 			}
 			ht.logger.Debug("Task %s requested module %s with %d parameters", taskID, moduleID, len(params))
 		}
+	}
+	
+	// Handle BOF modules differently
+	if parts[0] == "bof" {
+		ht.handleBOFModule(w, r, moduleID, taskID, params)
+		return
+	}
+	
+	ht.logger.Debug("Module request for %s (task: %s, session: %s) from %s", moduleID, taskID, sessionID, r.RemoteAddr)
+	
+	if ht.moduleGetter == nil {
+		http.Error(w, "Module getter not configured", http.StatusInternalServerError)
+		return
 	}
 	
 	// Get module script with parameters
