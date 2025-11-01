@@ -2469,6 +2469,94 @@ func (is *InteractiveServer) startInteractiveShell(sessionID, shellCmd string) e
 			break
 		}
 
+		// Check if the command is a module (starts with powershell/, python/, bof/, or is numeric)
+		parts := strings.Fields(line)
+		isModule := false
+		var moduleID string
+		var moduleArgs []string
+		
+		if len(parts) > 0 {
+			potentialModuleID := parts[0]
+			
+			// Check if it's a module path pattern (powershell/, python/, bof/)
+			if strings.HasPrefix(potentialModuleID, "powershell/") ||
+				strings.HasPrefix(potentialModuleID, "python/") ||
+				strings.HasPrefix(potentialModuleID, "bof/") {
+				isModule = true
+				moduleID = potentialModuleID
+				moduleArgs = parts[1:]
+			} else if _, err := strconv.Atoi(potentialModuleID); err == nil {
+				// Numeric ID - could be a module
+				_, found := is.moduleRegistry.GetModule(potentialModuleID)
+				if found {
+					isModule = true
+					moduleID = potentialModuleID
+					moduleArgs = parts[1:]
+				}
+			} else {
+				// Try to find module by ID or path
+				_, found := is.moduleRegistry.GetModule(potentialModuleID)
+				if !found {
+					_, found = is.moduleRegistry.GetModuleByPath(potentialModuleID)
+				}
+				if found {
+					isModule = true
+					moduleID = potentialModuleID
+					moduleArgs = parts[1:]
+				}
+			}
+		}
+
+		if isModule {
+			// Execute as module
+			// Parse module arguments - support both key=value and positional args
+			// executeModule expects args as []string, which it will parse
+			taskID, err := is.executeModule(sessionID, moduleID, moduleArgs)
+			if err != nil {
+				fmt.Printf("[!] Error executing module: %v\n", err)
+				continue
+			}
+
+			// Wait for module result
+			timeout := 60 * time.Second // Modules may take longer
+			start := time.Now()
+			ticker := time.NewTicker(200 * time.Millisecond)
+
+			resultReceived := false
+			for range ticker.C {
+				task := is.taskQueue.Get(taskID)
+				if task == nil {
+					ticker.Stop()
+					break
+				}
+
+				if task.Status == "completed" && task.Result != nil {
+					if resultMap, ok := task.Result.(map[string]interface{}); ok {
+						if resultValue, ok := resultMap["result"].(string); ok {
+							fmt.Print(resultValue)
+							if !strings.HasSuffix(resultValue, "\n") {
+								fmt.Println()
+							}
+							resultReceived = true
+							ticker.Stop()
+							break
+						}
+					}
+				}
+
+				if time.Since(start) > timeout {
+					fmt.Printf("[!] Module execution timed out after %v\n", timeout)
+					ticker.Stop()
+					break
+				}
+			}
+
+			if !resultReceived {
+				fmt.Printf("[!] Module execution incomplete or timed out\n")
+			}
+			continue
+		}
+
 		// Execute command in shell context
 		// For cmd.exe, wrap in cmd.exe /c
 		// For powershell, wrap in powershell.exe -Command
