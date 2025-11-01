@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ditto/ditto/banner"
 	"github.com/ditto/ditto/certificates"
 	"github.com/ditto/ditto/core"
 	"github.com/ditto/ditto/database"
+	"github.com/ditto/ditto/internal/cliui"
 	"github.com/ditto/ditto/interactive"
 	"github.com/ditto/ditto/jobs"
 	"github.com/ditto/ditto/loot"
@@ -300,7 +300,7 @@ func (is *InteractiveServer) Run() {
 		}
 	}()
 
-	banner.PrintDittoBanner()
+	cliui.Banner("Ditto", "1.0.0") // Version from main.go
 	fmt.Println("Ditto Interactive Server")
 	fmt.Println("Type 'help' for available commands")
 	fmt.Println()
@@ -391,7 +391,7 @@ func (is *InteractiveServer) handleCommand(cmd string, args []string) error {
 		fmt.Printf("Ditto v%s\nBuild: %s\nCommit: %s\n", version, buildTime, gitCommit)
 	case "clear", "cls":
 		fmt.Print("\033[H\033[2J")
-		banner.PrintDittoBanner()
+		cliui.Banner("Ditto", "1.0.0")
 	case "modules":
 		allModules := is.moduleRegistry.ListAllModules()
 		if len(allModules) == 0 {
