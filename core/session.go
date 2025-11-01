@@ -78,11 +78,53 @@ func NewSession(id string, sessionType SessionType, transport string) *Session {
 	}
 }
 
+// GetID returns the session ID (thread-safe)
+func (s *Session) GetID() string {
+	// ID is immutable after creation, safe to read without lock
+	return s.ID
+}
+
+// GetType returns the session type (thread-safe)
+func (s *Session) GetType() SessionType {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Type
+}
+
+// GetTransport returns the transport type (thread-safe)
+func (s *Session) GetTransport() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Transport
+}
+
+// GetRemoteAddr returns the remote address (thread-safe)
+func (s *Session) GetRemoteAddr() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.RemoteAddr
+}
+
 // SetPrivilegeLevel sets the privilege level of the session
+// Publishes SessionPrivilegeChanged event if level changed
 func (s *Session) SetPrivilegeLevel(level PrivilegeLevel) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	oldLevel := s.PrivilegeLevel
 	s.PrivilegeLevel = level
+	s.mu.Unlock()
+
+	// Publish event if level changed
+	if oldLevel != level {
+		EventBroker.Publish(Event{
+			EventType: EventSessionPrivilegeChanged,
+			Session:   s,
+			Metadata: map[string]interface{}{
+				"session_id":    s.GetID(), // Use getter for consistency
+				"old_privilege": string(oldLevel),
+				"new_privilege": string(level),
+			},
+		})
+	}
 }
 
 // GetPrivilegeLevel returns the privilege level
@@ -114,10 +156,25 @@ func (s *Session) UpdateLastSeen() {
 }
 
 // SetState updates the session state
+// Publishes SessionStateChanged event if state changed
 func (s *Session) SetState(state SessionState) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	oldState := s.State
 	s.State = state
+	s.mu.Unlock()
+
+	// Publish event if state changed
+	if oldState != state {
+		EventBroker.Publish(Event{
+			EventType: EventSessionStateChanged,
+			Session:   s,
+			Metadata: map[string]interface{}{
+				"session_id": s.GetID(), // Use getter for consistency
+				"old_state":  string(oldState),
+				"new_state":  string(state),
+			},
+		})
+	}
 }
 
 // GetState returns the current state
@@ -167,11 +224,35 @@ func NewSessionManager() *SessionManager {
 	}
 }
 
-// AddSession adds a session
+// AddSession adds a session and publishes SessionOpened event
 func (sm *SessionManager) AddSession(session *Session) {
+	if session == nil {
+		return // Safety check
+	}
+	
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	sm.sessions[session.ID] = session
+	sm.mu.Unlock()
+
+	// Read session fields with locks before publishing event
+	session.mu.RLock()
+	sessionID := session.ID
+	sessionType := string(session.Type)
+	transport := session.Transport
+	remoteAddr := session.RemoteAddr
+	session.mu.RUnlock()
+
+	// Publish event (do this outside the lock to avoid deadlock)
+	EventBroker.Publish(Event{
+		EventType: EventSessionOpened,
+		Session:   session,
+		Metadata: map[string]interface{}{
+			"session_id": sessionID,
+			"type":       sessionType,
+			"transport":  transport,
+			"remote_addr": remoteAddr,
+		},
+	})
 }
 
 // GetSession retrieves a session by ID (supports partial matching)
@@ -196,11 +277,25 @@ func (sm *SessionManager) GetSession(id string) (*Session, bool) {
 	return nil, false
 }
 
-// RemoveSession removes a session
+// RemoveSession removes a session and publishes SessionClosed event
 func (sm *SessionManager) RemoveSession(id string) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	delete(sm.sessions, id)
+	session, exists := sm.sessions[id]
+	if exists {
+		delete(sm.sessions, id)
+	}
+	sm.mu.Unlock()
+
+	// Publish event if session existed
+	if exists {
+		EventBroker.Publish(Event{
+			EventType: EventSessionClosed,
+			Session:   session,
+			Metadata: map[string]interface{}{
+				"session_id": id,
+			},
+		})
+	}
 }
 
 // ListSessions returns all sessions
@@ -220,7 +315,10 @@ func (sm *SessionManager) GetBeacons() []*Session {
 	defer sm.mu.RUnlock()
 	beacons := make([]*Session, 0)
 	for _, session := range sm.sessions {
-		if session.Type == SessionTypeBeacon {
+		session.mu.RLock()
+		isBeacon := session.Type == SessionTypeBeacon
+		session.mu.RUnlock()
+		if isBeacon {
 			beacons = append(beacons, session)
 		}
 	}
@@ -233,7 +331,10 @@ func (sm *SessionManager) GetInteractiveSessions() []*Session {
 	defer sm.mu.RUnlock()
 	sessions := make([]*Session, 0)
 	for _, session := range sm.sessions {
-		if session.Type == SessionTypeInteractive {
+		session.mu.RLock()
+		isInteractive := session.Type == SessionTypeInteractive
+		session.mu.RUnlock()
+		if isInteractive {
 			sessions = append(sessions, session)
 		}
 	}
@@ -241,16 +342,39 @@ func (sm *SessionManager) GetInteractiveSessions() []*Session {
 }
 
 // CleanupDeadSessions removes sessions that haven't been seen in timeout duration
+// Publishes SessionClosed events for cleaned up sessions
 func (sm *SessionManager) CleanupDeadSessions(timeout time.Duration) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	
 	now := time.Now()
+	deadSessions := make([]*Session, 0)
 	for id, session := range sm.sessions {
-		if now.Sub(session.LastSeen) > timeout {
-			session.SetState(SessionStateDead)
+		session.mu.RLock()
+		lastSeen := session.LastSeen
+		session.mu.RUnlock()
+		
+		if now.Sub(lastSeen) > timeout {
+			// Don't call SetState here as it will publish EventSessionStateChanged
+			// We'll just mark it dead and publish SessionClosed event
+			session.mu.Lock()
+			session.State = SessionStateDead
+			session.mu.Unlock()
+			deadSessions = append(deadSessions, session)
 			delete(sm.sessions, id)
 		}
+	}
+	sm.mu.Unlock()
+
+	// Publish events for dead sessions (outside the lock)
+	for _, session := range deadSessions {
+		EventBroker.Publish(Event{
+			EventType: EventSessionClosed,
+			Session:   session,
+			Metadata: map[string]interface{}{
+				"session_id": session.GetID(), // Use getter for thread safety
+				"reason":     "timeout",
+			},
+		})
 	}
 }
 

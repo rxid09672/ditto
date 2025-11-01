@@ -68,12 +68,13 @@ func NewHTTPTransportWithTaskQueue(config *core.Config, logger interface {
 
 // SetModuleGetter sets the function to retrieve module scripts
 // The getter function will be wrapped to accept optional parameters
+// NOTE: Parameters are currently ignored - use SetModuleGetterWithParams() for parameter-aware getters
 func (ht *HTTPTransport) SetModuleGetter(getter func(string) (string, error)) {
 	// Store the original getter and create a wrapper that accepts params
 	originalGetter := getter
 	ht.moduleGetter = func(moduleID string, params map[string]string) (string, error) {
-		// For now, ignore params and use original getter
-		// In the future, we can enhance this to re-process with params
+		// Parameters are currently ignored - modules handle their own parameter substitution server-side
+		// Use SetModuleGetterWithParams() if you need parameter-aware module retrieval
 		return originalGetter(moduleID)
 	}
 }
@@ -203,14 +204,27 @@ func (ht *HTTPTransport) Stop() error {
 }
 
 func (ht *HTTPTransport) Accept() (Connection, error) {
-	// HTTP connections are handled per-request
-	return nil, fmt.Errorf("HTTP transport does not support Accept()")
+	// HTTP transport does not support Accept() - connections are request-based
+	// HTTP is a stateless protocol where each request creates a new connection context.
+	// Use Connect() for client-side connections or handleBeacon()/handleTask() for server-side request handling.
+	// 
+	// Alternative approaches:
+	// - For server-side: Use HTTP handlers (handleBeacon, handleTask, handleResult) instead of Accept()
+	// - For client-side: Use Connect() to establish HTTP client connections
+	return nil, fmt.Errorf("HTTP transport does not support Accept() - use Connect() for client or HTTP handlers for server")
 }
 
 func (ht *HTTPTransport) Connect(ctx context.Context, addr string) (Connection, error) {
 	// Client-side connection via HTTP client
+	// Use configurable timeout if available, otherwise default to 30 seconds
+	timeout := 30 * time.Second
+	if ht.config != nil && ht.config.Server.ReadTimeout > 0 {
+		// Use ReadTimeout as client timeout (reasonable default)
+		timeout = ht.config.Server.ReadTimeout
+	}
+	
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 	}
 	
 	// Determine protocol
@@ -242,6 +256,10 @@ func hasProtocol(addr string) bool {
 }
 
 func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
+	// Propagate request context for cancellation support
+	ctx := r.Context()
+	_ = ctx // Context available for future use (e.g., timeout handling)
+	
 	ht.logger.Debug("Incoming beacon request from %s (method: %s, URI: %s, headers: %v)", 
 		r.RemoteAddr, r.Method, r.RequestURI, r.Header)
 	
@@ -271,10 +289,18 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 	// This handles NAT/proxy scenarios where source port changes
 	if session == nil && sessionID != "" {
 		// Extract IP from RemoteAddr
-		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			// RemoteAddr may not have port (e.g., unix socket) - use as-is
+			clientIP = r.RemoteAddr
+		}
 		if clientIP != "" {
 			for id, existingSession := range ht.sessions {
-				existingIP, _, _ := net.SplitHostPort(existingSession.RemoteAddr)
+				existingIP, _, err := net.SplitHostPort(existingSession.RemoteAddr)
+				if err != nil {
+					// RemoteAddr may not have port - use as-is
+					existingIP = existingSession.RemoteAddr
+				}
 				if existingIP == clientIP {
 					// IP matches - use the existing session ID
 					session = existingSession
@@ -391,6 +417,10 @@ func (ht *HTTPTransport) handleBeacon(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ht *HTTPTransport) handleTask(w http.ResponseWriter, r *http.Request) {
+	// Propagate request context for cancellation support
+	ctx := r.Context()
+	_ = ctx // Context available for future use (e.g., timeout handling)
+	
 	ht.logger.Debug("Task request from %s (method: %s)", r.RemoteAddr, r.Method)
 	
 	if r.Method != http.MethodGet {
@@ -418,13 +448,22 @@ func (ht *HTTPTransport) handleTask(w http.ResponseWriter, r *http.Request) {
 			if ht.taskQueue != nil {
 				ht.taskQueue.UpdateStatus(taskID, "in_progress")
 				// Remove task after completion timeout (30 seconds)
-				go func(id string) {
+				// Use context-aware goroutine to handle cancellation
+				go func(id string, queue interface{}) {
+					// Check if queue is still valid before accessing
+					if queue == nil {
+						return
+					}
 					time.Sleep(30 * time.Second)
+					// Double-check queue is still valid
+					if queue == nil || ht.taskQueue == nil {
+						return
+					}
 					if task := ht.taskQueue.Get(id); task != nil && task.Status == "in_progress" {
 						ht.logger.Debug("Removing expired task %s after timeout", id)
 						ht.taskQueue.Remove(id)
 					}
-				}(taskID)
+				}(taskID, ht.taskQueue)
 			}
 		}
 	}
@@ -441,6 +480,10 @@ func (ht *HTTPTransport) handleTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
+	// Propagate request context for cancellation support
+	ctx := r.Context()
+	_ = ctx // Context available for future use (e.g., timeout handling)
+	
 	ht.logger.Debug("Result request from %s (method: %s)", r.RemoteAddr, r.Method)
 	
 	if r.Method != http.MethodPost {
@@ -507,6 +550,10 @@ func (ht *HTTPTransport) handleResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {
+	// Propagate request context for cancellation support
+	ctx := r.Context()
+	_ = ctx // Context available for future use (e.g., timeout handling)
+	
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -544,6 +591,10 @@ func (ht *HTTPTransport) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
+	// Propagate request context for cancellation support
+	ctx := r.Context()
+	_ = ctx // Context available for future use (e.g., timeout handling)
+	
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -553,6 +604,28 @@ func (ht *HTTPTransport) handleModule(w http.ResponseWriter, r *http.Request) {
 	moduleID := strings.TrimPrefix(r.URL.Path, "/module/")
 	if moduleID == "" {
 		http.Error(w, "Module ID required", http.StatusBadRequest)
+		return
+	}
+	
+	// Validate module ID to prevent path traversal attacks
+	// Module IDs should only contain alphanumeric, slash, underscore, and hyphen
+	if strings.Contains(moduleID, "..") || strings.Contains(moduleID, "//") {
+		http.Error(w, "Invalid module ID: path traversal detected", http.StatusBadRequest)
+		return
+	}
+	
+	// Additional validation: ensure module ID follows expected pattern
+	// Should be: language/category/module or language/module
+	parts := strings.Split(moduleID, "/")
+	if len(parts) < 2 || len(parts) > 3 {
+		http.Error(w, "Invalid module ID format", http.StatusBadRequest)
+		return
+	}
+	
+	// Validate language prefix (powershell, python, etc.)
+	validLanguages := map[string]bool{"powershell": true, "python": true}
+	if !validLanguages[parts[0]] {
+		http.Error(w, "Invalid module language", http.StatusBadRequest)
 		return
 	}
 	

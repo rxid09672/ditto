@@ -1,8 +1,8 @@
 package transport
 
 import (
+	"bufio"
 	"context"
-	"io"
 	"net"
 	"time"
 )
@@ -118,7 +118,8 @@ func NewMultiConn(conns ...Connection) *MultiConn {
 }
 
 func (mc *MultiConn) Read(b []byte) (n int, err error) {
-	for i := 0; i < len(mc.conns); i++ {
+	startIdx := mc.current
+	for {
 		conn := mc.conns[mc.current]
 		n, err = conn.Read(b)
 		if err == nil {
@@ -126,12 +127,16 @@ func (mc *MultiConn) Read(b []byte) (n int, err error) {
 		}
 		// Try next connection
 		mc.current = (mc.current + 1) % len(mc.conns)
+		// If we've tried all connections, return error
+		if mc.current == startIdx {
+			return 0, err
+		}
 	}
-	return 0, err
 }
 
 func (mc *MultiConn) Write(b []byte) (n int, err error) {
-	for i := 0; i < len(mc.conns); i++ {
+	startIdx := mc.current
+	for {
 		conn := mc.conns[mc.current]
 		n, err = conn.Write(b)
 		if err == nil {
@@ -139,8 +144,11 @@ func (mc *MultiConn) Write(b []byte) (n int, err error) {
 		}
 		// Try next connection
 		mc.current = (mc.current + 1) % len(mc.conns)
+		// If we've tried all connections, return error
+		if mc.current == startIdx {
+			return 0, err
+		}
 	}
-	return 0, err
 }
 
 func (mc *MultiConn) Close() error {
@@ -191,19 +199,19 @@ func (mc *MultiConn) SetWriteDeadline(t time.Time) error {
 	return firstErr
 }
 
-// BufferedConn wraps a connection with buffering
+// BufferedConn wraps a connection with actual buffering for improved performance
 type BufferedConn struct {
 	conn Connection
-	r    io.Reader
-	w    io.Writer
+	r    *bufio.Reader
+	w    *bufio.Writer
 }
 
-// NewBufferedConn creates a buffered connection
+// NewBufferedConn creates a buffered connection with actual buffering
 func NewBufferedConn(conn Connection) *BufferedConn {
 	return &BufferedConn{
 		conn: conn,
-		r:    conn,
-		w:    conn,
+		r:    bufio.NewReader(conn),
+		w:    bufio.NewWriter(conn),
 	}
 }
 
@@ -216,6 +224,10 @@ func (bc *BufferedConn) Write(b []byte) (n int, err error) {
 }
 
 func (bc *BufferedConn) Close() error {
+	// Flush buffered writes before closing
+	if err := bc.w.Flush(); err != nil {
+		return err
+	}
 	return bc.conn.Close()
 }
 

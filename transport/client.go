@@ -263,7 +263,11 @@ func (c *Client) calculateSleep() time.Duration {
 
 func (c *Client) collectMetadata() []byte {
 	metadata := platform.GetSystemInfo()
-	data, _ := json.Marshal(metadata)
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		// Return empty JSON object on marshal failure
+		return []byte("{}")
+	}
 	return data
 }
 

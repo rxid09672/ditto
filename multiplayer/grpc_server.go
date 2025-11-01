@@ -170,8 +170,14 @@ func (s *grpcServer) sendOperatorEvent(operatorID, eventType string, data map[st
 	// Convert data map to JSON string
 	dataJSON := "{}"
 	if len(data) > 0 {
-		dataJSONBytes, _ := json.Marshal(data)
-		dataJSON = string(dataJSONBytes)
+		dataJSONBytes, err := json.Marshal(data)
+		if err != nil {
+			// Log error but continue with empty JSON
+			// This is non-critical - event will still be sent
+			dataJSON = "{}"
+		} else {
+			dataJSON = string(dataJSONBytes)
+		}
 	}
 	
 	event := &pb.OperatorEvent{

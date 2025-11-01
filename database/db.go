@@ -274,7 +274,10 @@ func SaveJobFromMap(metadata map[string]interface{}) (*Job, error) {
 		return nil, fmt.Errorf("failed to get database: %w", err)
 	}
 	
-	metadataJSON, _ := json.Marshal(metadata)
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+	}
 	job := &Job{
 		Type:     metadata["type"].(string),
 		Name:     metadata["name"].(string),
