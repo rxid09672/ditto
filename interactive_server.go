@@ -1859,10 +1859,17 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 
 		switch command {
 		case "shell", "exec":
-			if len(args) == 0 {
-				fmt.Println("[!] Error: Command cannot be empty")
-				fmt.Println("    Usage: shell <command>")
-				fmt.Println("    Example: shell whoami")
+			if len(args) == 0 || (len(args) == 1 && (args[0] == "cmd.exe" || args[0] == "cmd" || args[0] == "powershell.exe" || args[0] == "powershell" || args[0] == "pwsh")) {
+				// Interactive shell mode - start persistent shell
+				shellCmd := "cmd.exe"
+				if len(args) == 1 {
+					if args[0] == "powershell.exe" || args[0] == "powershell" || args[0] == "pwsh" {
+						shellCmd = "powershell.exe"
+					}
+				}
+				if err := is.startInteractiveShell(sessionID, shellCmd); err != nil {
+					fmt.Printf("[!] Error starting interactive shell: %v\n", err)
+				}
 				continue
 			}
 			_, err := is.executeShellCommand(sessionID, strings.Join(args, " "))
@@ -2400,6 +2407,120 @@ func (is *InteractiveServer) sessionShell(sessionID string) error {
 				// Task queued - result will be displayed automatically via events
 				fmt.Printf("[*] Task queued. Result will appear automatically when ready.\n")
 			}
+		}
+	}
+
+	return nil
+}
+
+// startInteractiveShell starts an interactive shell session
+func (is *InteractiveServer) startInteractiveShell(sessionID, shellCmd string) error {
+	if is.server == nil {
+		return fmt.Errorf("server not initialized")
+	}
+
+	// Validate session exists
+	if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+		return fmt.Errorf("session not found: %s", shortID(sessionID))
+	}
+
+	fmt.Printf("[*] Starting interactive %s shell...\n", shellCmd)
+	fmt.Printf("[*] Type commands to execute. Type 'exit' to leave shell mode.\n\n")
+
+	// Create shell-specific readline input
+	shellPrompt := "C:\\> "
+	if strings.Contains(shellCmd, "powershell") {
+		shellPrompt = "PS C:\\> "
+	}
+	
+	var shellInput interactive.InputReader
+	rlInput, err := interactive.NewReadlineInput(shellPrompt)
+	if err != nil {
+		shellInput = interactive.NewFallbackInput(shellPrompt)
+	} else {
+		shellInput = rlInput
+	}
+	defer shellInput.Close()
+
+	for {
+		// Validate session still exists
+		if _, ok := is.sessionMgr.GetSession(sessionID); !ok {
+			fmt.Printf("[!] Session %s no longer exists\n", shortID(sessionID))
+			break
+		}
+
+		line, err := shellInput.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			fmt.Printf("[!] Error reading input: %v\n", err)
+			continue
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Exit shell mode
+		if line == "exit" || line == "quit" {
+			fmt.Println("[*] Exiting shell mode")
+			break
+		}
+
+		// Execute command in shell context
+		// For cmd.exe, wrap in cmd.exe /c
+		// For powershell, wrap in powershell.exe -Command
+		var cmdToExecute string
+		if shellCmd == "cmd.exe" {
+			cmdToExecute = fmt.Sprintf("cmd.exe /c %s", line)
+		} else {
+			cmdToExecute = fmt.Sprintf("powershell.exe -Command %s", line)
+		}
+
+		// Execute command
+		taskID, err := is.executeShellCommand(sessionID, cmdToExecute)
+		if err != nil {
+			fmt.Printf("[!] Error: %v\n", err)
+			continue
+		}
+
+		// Wait for result (with timeout)
+		timeout := 30 * time.Second
+		start := time.Now()
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		resultReceived := false
+		for range ticker.C {
+			task := is.taskQueue.Get(taskID)
+			if task == nil {
+				break // Task removed
+			}
+
+			if task.Status == "completed" && task.Result != nil {
+				if resultMap, ok := task.Result.(map[string]interface{}); ok {
+					if resultValue, ok := resultMap["result"].(string); ok {
+						// Display result
+						fmt.Print(resultValue)
+						if !strings.HasSuffix(resultValue, "\n") {
+							fmt.Println()
+						}
+						resultReceived = true
+						break
+					}
+				}
+			}
+
+			if time.Since(start) > timeout {
+				fmt.Printf("[!] Command timed out after %v\n", timeout)
+				break
+			}
+		}
+
+		if !resultReceived {
+			fmt.Printf("[!] Command execution incomplete or timed out\n")
 		}
 	}
 
